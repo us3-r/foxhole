@@ -1,0 +1,54 @@
+# Host file server
+
+This small Python server transfers files between the Windows host and a VM. It
+does not execute uploaded or downloaded files on the host.
+
+It uses only the Python standard library and requires Python 3.10 or newer.
+
+## Start it on the host
+
+Place files that the VM should download in `server\files`, then run:
+
+```powershell
+python .\server\server.py
+```
+
+By default it listens on every host interface on port 8080 so a VM can reach it.
+For authenticated access, set a token before starting it:
+
+```powershell
+$env:FOXHOLE_SERVER_TOKEN = "replace-with-a-long-random-token"
+python .\server\server.py
+```
+
+If Windows Firewall blocks the connection, allow inbound TCP port 8080 only on
+the network profile/interface used by the VM. The host address for Hyper-V's
+Default Switch can usually be found with:
+
+```powershell
+Get-NetIPAddress -InterfaceAlias "vEthernet (Default Switch)" -AddressFamily IPv4
+```
+
+## Endpoints
+
+- `GET /health` returns server status.
+- `GET /files` lists available files.
+- `GET /files/<name>` downloads a file.
+- `POST /files/<name>` stores the raw request body as a file.
+
+Examples without a configured token:
+
+```powershell
+curl.exe http://127.0.0.1:8080/health
+curl.exe -o downloaded.exe http://HOST_IP:8080/files/example.exe
+curl.exe -X POST --data-binary "@result.json" http://HOST_IP:8080/files/results/result.json
+```
+
+When a token is configured, add this option to each request:
+
+```text
+-H "Authorization: Bearer replace-with-a-long-random-token"
+```
+
+Run `python .\server\server.py --help` for bind-address, port, file-directory,
+token, and upload-size options.

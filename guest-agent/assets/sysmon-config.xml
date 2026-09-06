@@ -1,0 +1,29 @@
+<Sysmon schemaversion="4.91">
+  <HashAlgorithms>SHA256</HashAlgorithms>
+  <CheckRevocation>false</CheckRevocation>
+  <DnsLookup>false</DnsLookup>
+  <EventFiltering>
+    <ProcessCreate onmatch="exclude" />
+    <ProcessTerminate onmatch="exclude" />
+    <NetworkConnect onmatch="exclude" />
+    <DriverLoad onmatch="exclude" />
+    <ImageLoad onmatch="exclude" />
+    <CreateRemoteThread onmatch="exclude" />
+    <ProcessAccess onmatch="exclude" />
+    <FileCreate onmatch="exclude" />
+    <FileCreateTime onmatch="exclude" />
+    <FileCreateStreamHash onmatch="exclude" />
+    <FileDeleteDetected onmatch="exclude" />
+    <RegistryEvent onmatch="exclude" />
+    <DnsQuery onmatch="exclude" />
+    <PipeEvent onmatch="exclude" />
+    <WmiEvent onmatch="exclude" />
+    <RawAccessRead onmatch="exclude" />
+    <ProcessTampering onmatch="exclude" />
+    <ClipboardChange onmatch="exclude" />
+    <!-- Foxhole uses Sysmon only as a telemetry source. Do not configure Sysmon's
+         active file-blocking event types here; containment is enforced outside the
+         tested process by the Hyper-V and host firewall controls. -->
+    <FileExecutableDetected onmatch="exclude" />
+  </EventFiltering>
+</Sysmon>
