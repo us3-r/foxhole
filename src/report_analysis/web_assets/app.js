@@ -14,6 +14,7 @@
   const normalized = report.normalized;
   const verdict = report.verdict;
   const iocs = report.iocs;
+  const virustotal = report.virustotal || { status: "not_queried", files: [], warnings: [] };
   const downloadsByEndpoint = correlateDownloads();
   const targetPath = normalized.target && typeof normalized.target.path === "string"
     ? normalized.target.path
@@ -38,10 +39,25 @@
     processes: renderProcesses,
     network: renderNetwork,
     iocs: renderIocs,
+    virustotal: renderVirusTotal,
   };
   if (renderers[page]) renderers[page]();
 
   function renderOverview() {
+    const stageTable = document.getElementById("stage-results");
+    if (stageTable) {
+      stageTable.replaceChildren();
+      for (const stage of (Array.isArray(report.stages) ? report.stages : []).slice(0, 256)) {
+        const row = document.createElement("tr");
+        for (const value of [stage.stage, stage.status, stage.target || "-", (stage.warnings || []).slice(0, 8).join("; ")]) {
+          const cell = document.createElement("td");
+          cell.textContent = String(value).slice(0, 4096);
+          row.appendChild(cell);
+        }
+        stageTable.appendChild(row);
+      }
+    }
+
     const findingCounts = countBy(verdict.findings, (finding) => finding.severity);
     const contextual = iocs.indicators.filter((indicator) => indicator.contextual).length;
     const strip = document.querySelector(".verdict-strip");
@@ -144,6 +160,204 @@
     wireCopyButton(document.getElementById("copy-host-command"), commandLine, "host command");
   }
 
+  function renderVirusTotal() {
+    const files = Array.isArray(virustotal.files) ? virustotal.files : [];
+    const primary = files.filter((file) => file.role === "target");
+    const observed = files.filter((file) => file.role !== "target");
+    const status = document.getElementById("vt-report-status");
+    status.textContent = humanize(virustotal.status || "unavailable");
+    status.dataset.status = virustotal.status || "unavailable";
+
+    const primaryContainer = clear("vt-primary-file");
+    if (primary.length) {
+      primary.forEach((file) => primaryContainer.append(renderVirusTotalFile(file)));
+    } else {
+      primaryContainer.append(node(
+        "p",
+        "empty-state",
+        "The archived run does not contain a verified SHA-256 for the main executed file."
+      ));
+    }
+
+    setText("vt-observed-count", `${observed.length} hashed file${plural(observed.length)}`);
+    const observedContainer = clear("vt-observed-files");
+    if (observed.length) {
+      observed.forEach((file) => observedContainer.append(renderVirusTotalFile(file)));
+    } else {
+      observedContainer.append(node(
+        "p",
+        "empty-state",
+        "No other created or downloaded file had a SHA-256 available for lookup."
+      ));
+    }
+
+    const warnings = Array.isArray(virustotal.warnings) ? virustotal.warnings : [];
+    const warningPanel = document.getElementById("vt-warning-panel");
+    warningPanel.hidden = warnings.length === 0;
+    const warningList = clear("vt-warnings");
+    warnings.forEach((warning) => warningList.append(node("li", "", warning)));
+  }
+
+  function renderVirusTotalFile(file) {
+    const details = node("details", "vt-file-card");
+    details.dataset.status = file.status || "unavailable";
+    const summary = node("summary", "vt-file-summary");
+    const identity = node("div", "vt-file-identity");
+    const role = file.role === "target" ? "Main executed file" : "Observed file";
+    identity.append(node("span", "vt-file-role", role));
+    identity.append(node("strong", "", file.name || basename(file.path || "<unknown>")));
+    identity.append(node("code", "vt-file-path", file.path || "—"));
+    identity.append(node("code", "vt-file-hash", file.sha256 || "—"));
+    summary.append(identity);
+
+    const score = node("div", "vt-detection-score");
+    if (file.status === "available") {
+      const malicious = Number(file.stats && file.stats.malicious) || 0;
+      const suspicious = Number(file.stats && file.stats.suspicious) || 0;
+      const detected = malicious + suspicious;
+      const total = virusTotalStatTotal(file.stats);
+      score.dataset.tone = detected > 0 ? "detected" : "clear";
+      score.style.setProperty("--vt-score", `${total ? (detected / total) * 360 : 0}deg`);
+      score.append(node("strong", "", String(detected)));
+      score.append(node("span", "", `/ ${total}`));
+      score.setAttribute(
+        "aria-label",
+        `${detected} of ${total} VirusTotal engines marked the file malicious or suspicious`
+      );
+    } else {
+      score.dataset.tone = "unknown";
+      score.append(node("strong", "", "—"));
+      score.append(node("span", "", "No score"));
+      score.setAttribute("aria-label", "VirusTotal score unavailable");
+    }
+    summary.append(score);
+    summary.append(node("span", "vt-expand-label", "Engine details"));
+    details.append(summary);
+
+    const body = node("div", "vt-file-body");
+    const toolbar = node("div", "vt-file-toolbar");
+    const metadata = node("div", "vt-file-metadata");
+    metadata.append(metadataItem("VirusTotal name", file.meaningful_name || "—"));
+    metadata.append(metadataItem("File type", file.type_description || "—"));
+    metadata.append(metadataItem("Last analysis", formatUnixSeconds(file.last_analysis_date)));
+    toolbar.append(metadata);
+    if (isSha256(file.sha256)) {
+      const actions = node("div", "vt-actions");
+      actions.append(externalLink(
+        virusTotalFileUrl(file.sha256, "detection"),
+        "Open VirusTotal report",
+        `Open VirusTotal detection report for ${file.sha256}`
+      ));
+      actions.append(externalLink(
+        virusTotalFileUrl(file.sha256, "community"),
+        "Open discussion",
+        `Open VirusTotal community discussion for ${file.sha256}`
+      ));
+      toolbar.append(actions);
+    }
+    body.append(toolbar);
+
+    if (file.status !== "available") {
+      body.append(node("p", "vt-lookup-message", file.message || "VirusTotal data is unavailable."));
+      details.append(body);
+      return details;
+    }
+
+    body.append(renderVirusTotalStats(file.stats || {}));
+    const engines = Array.isArray(file.engines) ? file.engines : [];
+    if (!engines.length) {
+      body.append(node("p", "empty-state", "VirusTotal returned no per-engine results."));
+    } else {
+      const wrap = node("div", "table-wrap vt-engine-table");
+      const table = node("table");
+      const head = node("thead");
+      const headRow = node("tr");
+      ["Engine", "Verdict", "Detection name", "Version", "Updated"].forEach((label) => {
+        headRow.append(node("th", "", label));
+      });
+      head.append(headRow);
+      table.append(head);
+      const tableBody = node("tbody");
+      engines.forEach((engine) => {
+        const row = node("tr");
+        const nameCell = node("td", "vt-engine-name");
+        nameCell.append(node("strong", "", engine.engine_name || "Unknown engine"));
+        if (engine.trusted) nameCell.append(node("span", "vt-trusted", "Trusted"));
+        row.append(nameCell);
+        const verdictCell = node("td");
+        const category = String(engine.category || "unknown").toLowerCase();
+        verdictCell.append(node("span", `vt-category ${vtCategoryClass(category)}`, humanize(category)));
+        row.append(verdictCell);
+        appendCell(row, engine.result || (category === "undetected" ? "No detection" : "—"), "cell-evidence");
+        appendCell(row, engine.engine_version || "—");
+        appendCell(row, engine.engine_update || "—");
+        tableBody.append(row);
+      });
+      table.append(tableBody);
+      wrap.append(table);
+      body.append(wrap);
+    }
+    details.append(body);
+    return details;
+  }
+
+  function renderVirusTotalStats(stats) {
+    const grid = node("div", "vt-stat-grid");
+    [
+      ["Malicious", stats.malicious, "malicious"],
+      ["Suspicious", stats.suspicious, "suspicious"],
+      ["Undetected", stats.undetected, "undetected"],
+      ["Harmless", stats.harmless, "harmless"],
+      ["Timeout / failure", (Number(stats.timeout) || 0) + (Number(stats.confirmed_timeout) || 0) + (Number(stats.failure) || 0), "neutral"],
+      ["Unsupported", stats.type_unsupported, "neutral"],
+    ].forEach(([label, value, tone]) => {
+      const item = node("div", `vt-stat ${tone}`);
+      item.append(node("span", "", label));
+      item.append(node("strong", "", String(Number(value) || 0)));
+      grid.append(item);
+    });
+    return grid;
+  }
+
+  function metadataItem(label, value) {
+    const item = node("div");
+    item.append(node("span", "", label));
+    item.append(node("strong", "", value));
+    return item;
+  }
+
+  function virusTotalStatTotal(stats) {
+    return [
+      "malicious",
+      "suspicious",
+      "harmless",
+      "undetected",
+      "timeout",
+      "failure",
+      "type_unsupported",
+      "confirmed_timeout",
+    ].reduce((total, key) => total + (Number(stats && stats[key]) || 0), 0);
+  }
+
+  function vtCategoryClass(category) {
+    if (["malicious", "suspicious", "harmless", "undetected"].includes(category)) return category;
+    return "neutral";
+  }
+
+  function formatUnixSeconds(value) {
+    const seconds = Number(value);
+    if (!Number.isFinite(seconds) || seconds <= 0) return "—";
+    return new Date(seconds * 1000).toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "UTC",
+      timeZoneName: "short",
+    });
+  }
+
   function reconstructHostCommand(hostReport, target, sandbox) {
     const backendSelection = hostReport.backend_selection || {};
     const backendMetadata = hostReport.backend_metadata || {};
@@ -233,7 +447,7 @@
       const item = node("div", "coverage-item");
       let classification = "missing";
       let label = "not collected";
-      if (state && state.complete) {
+      if (state && state.complete && channel !== "network") {
         classification = "complete";
         label = "complete";
       } else if (state && state.collected) {
@@ -284,9 +498,23 @@
 
     const severity = document.getElementById("finding-severity");
     const search = document.getElementById("finding-search");
+    const source = document.getElementById("finding-source");
+    const file = document.getElementById("finding-file");
+    const namespace = document.getElementById("finding-namespace");
+    const attack = document.getElementById("finding-attack");
+    const confidence = document.getElementById("finding-confidence");
+    [...new Set(verdict.findings.map(f => (f.details || {}).source || "behavioral"))].sort().forEach(value => {
+      const option = node("option", "", value); option.value = value; source.append(option);
+    });
     const update = () => {
       const query = search.value.trim().toLowerCase();
       const filtered = verdict.findings.filter((finding) => {
+        const detail = finding.details || {};
+        if ((source.value !== "all" && (detail.source || "behavioral") !== source.value) ||
+            (file.value && !String(detail.file_sha256 || "").includes(file.value.trim().toLowerCase())) ||
+            (namespace.value && !String(detail.namespace || "").toLowerCase().includes(namespace.value.toLowerCase())) ||
+            (attack.value && !(detail.attack || []).some(t => t.toLowerCase().includes(attack.value.toLowerCase()))) ||
+            finding.confidence < Number(confidence.value)) return false;
         const matchesSeverity = severity.value === "all" || finding.severity === severity.value;
         const haystack = [
           finding.rule_id,
@@ -302,6 +530,7 @@
       renderFindingCards(filtered);
     };
     severity.addEventListener("change", update);
+    [source, file, namespace, attack, confidence].forEach(control => control.addEventListener("input", update));
     search.addEventListener("input", update);
     update();
   }
@@ -727,6 +956,7 @@
     const fileType = document.getElementById("ioc-file-type");
     const eventType = document.getElementById("ioc-event-type");
     const scope = document.getElementById("ioc-scope");
+    const sourceCategory = document.getElementById("ioc-source-category");
     uniqueValues(iocs.indicators.flatMap(indicatorFileTypes), (value) => value).forEach((value) => {
       const option = node("option", "", value);
       option.value = value;
@@ -752,6 +982,7 @@
           (fileType.value === "all" || fileTypes.includes(fileType.value)) &&
           (eventType.value === "all" || indicator.sources.some((source) => source.kind === eventType.value)) &&
           matchesScope &&
+          (sourceCategory.value === "all" || ((indicator.details || {}).source_categories || ["dynamic"]).includes(sourceCategory.value)) &&
           (!query || `${indicator.value} ${indicator.type} ${fileTypes.join(" ")} ${sources}`.toLowerCase().includes(query));
       });
       setText("ioc-result-count", `${filtered.length} indicator${plural(filtered.length)}`);
@@ -762,6 +993,7 @@
     fileType.addEventListener("change", update);
     eventType.addEventListener("change", update);
     scope.addEventListener("change", update);
+    sourceCategory.addEventListener("change", update);
     update();
 
     const warningPanel = document.getElementById("ioc-warning-panel");
@@ -1124,7 +1356,7 @@
   function node(tag, className = "", text = null) {
     const element = document.createElement(tag);
     if (className) element.className = className;
-    if (text !== null && text !== undefined) element.textContent = String(text);
+    if (text !== null && text !== undefined) element.textContent = String(text).slice(0, 2048);
     return element;
   }
 
@@ -1230,14 +1462,23 @@
     return `https://www.virustotal.com/gui/search?query=${encodeURIComponent(sha256)}`;
   }
 
-  function virusTotalLink(sha256, label) {
+  function virusTotalFileUrl(sha256, section) {
+    const safeSection = section === "community" ? "community" : "detection";
+    return `https://www.virustotal.com/gui/file/${encodeURIComponent(sha256)}/${safeSection}`;
+  }
+
+  function externalLink(url, label, ariaLabel) {
     const link = node("a", "external-link", label);
-    link.href = virusTotalUrl(sha256);
+    link.href = url;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    link.setAttribute("aria-label", `${label}: look up ${sha256} (opens in a new tab)`);
+    link.setAttribute("aria-label", `${ariaLabel} (opens in a new tab)`);
     link.append(node("span", "external-arrow", "↗"));
     return link;
+  }
+
+  function virusTotalLink(sha256, label) {
+    return externalLink(virusTotalUrl(sha256), label, `${label}: look up ${sha256}`);
   }
 
   function clear(id) {
@@ -1248,7 +1489,7 @@
 
   function setText(id, value) {
     const element = document.getElementById(id);
-    if (element) element.textContent = String(value);
+    if (element) element.textContent = String(value).slice(0, 2048);
   }
 
   function countBy(values, selector) {

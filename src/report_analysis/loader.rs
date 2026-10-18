@@ -221,7 +221,13 @@ pub fn load_run(input: &Path) -> io::Result<NormalizedRun> {
         .cloned()
         .or_else(|| host.get("coverage").cloned())
         .unwrap_or_else(|| Value::Object(Map::new()));
-    let limitations = collect_limitations(host_object, guest_object, &execution, &coverage);
+    let capture_health = normalize_capture_health(&host, &execution, &mut warnings);
+    let mut limitations = collect_limitations(host_object, guest_object, &execution, &coverage);
+    for health in &capture_health {
+        limitations.extend(health.coverage_warnings());
+    }
+    let mut seen = BTreeSet::new();
+    limitations.retain(|warning| seen.insert(warning.clone()));
 
     source_paths.sort();
     source_paths.dedup();
@@ -229,7 +235,10 @@ pub fn load_run(input: &Path) -> io::Result<NormalizedRun> {
     raw.insert("guest_result".to_string(), guest);
     raw.insert("host_report".to_string(), host);
 
-    Ok(NormalizedRun {
+    let mut run = NormalizedRun {
+        capture_health,
+        network_attempts: Vec::new(),
+        detection: Default::default(),
         schema_version: NORMALIZED_SCHEMA_VERSION.to_string(),
         run_id,
         target,
@@ -253,7 +262,43 @@ pub fn load_run(input: &Path) -> io::Result<NormalizedRun> {
         validation_warnings: warnings,
         source_paths,
         raw,
-    })
+    };
+    for p in &mut run.processes {
+        p.observations
+            .dedup_by(|a, b| a.evidence_id == b.evidence_id);
+    }
+    run.file_events
+        .sort_by(|a, b| a.evidence_id.cmp(&b.evidence_id));
+    run.file_events
+        .dedup_by(|a, b| a.evidence_id == b.evidence_id);
+    run.registry_events
+        .sort_by(|a, b| a.evidence_id.cmp(&b.evidence_id));
+    run.registry_events
+        .dedup_by(|a, b| a.evidence_id == b.evidence_id);
+    run.network_events
+        .sort_by(|a, b| a.evidence_id.cmp(&b.evidence_id));
+    run.network_events
+        .dedup_by(|a, b| a.evidence_id == b.evidence_id);
+    run.artifacts
+        .sort_by(|a, b| a.evidence_id.cmp(&b.evidence_id));
+    run.artifacts
+        .dedup_by(|a, b| a.evidence_id == b.evidence_id);
+    run.artifacts
+        .sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+    super::telemetry::import(&mut run, &guest_output);
+    run.normalized_event_counts = RawEventCounts {
+        process: run.processes.iter().map(|p| p.observations.len()).sum(),
+        network: run.network_events.len(),
+        filesystem: run.file_events.len(),
+        registry: run.registry_events.len(),
+    };
+    run.detection = super::detection::import(&run, &guest_output);
+    Ok(run)
+}
+
+fn stable_evidence_id(kind: &str, source: &str, raw: &Value) -> String {
+    let bytes = serde_json::to_vec(&(source, raw)).unwrap_or_default();
+    format!("{kind}:{:x}", Sha256::digest(bytes))
 }
 
 fn discover_layout(input: &Path, budget: &mut AnalysisInputBudget) -> io::Result<RunLayout> {
@@ -586,7 +631,7 @@ fn normalize_processes(
         }
         let parent_pid = parsed_parent_pid.filter(|pid| *pid != 0);
         grouped.entry(pid).or_default().push(ProcessObservation {
-            evidence_id: format!("process:{index}"),
+            evidence_id: stable_evidence_id("process", source, raw),
             pid,
             parent_pid,
             image,
@@ -746,7 +791,7 @@ fn normalize_files(
         });
         let association = associate_process(explicit_pid, observed_at_ms, processes, root_pid);
         output.push(FileEvent {
-            evidence_id: format!("file:{index}"),
+            evidence_id: stable_evidence_id("file", source, raw),
             pid: association.pid,
             path: path.to_string(),
             action: action.to_string(),
@@ -826,7 +871,7 @@ fn normalize_registry(
                     .map(|(_, data)| data.to_string())
             });
         output.push(RegistryEvent {
-            evidence_id: format!("registry:{index}"),
+            evidence_id: stable_evidence_id("registry", source, raw),
             pid: association.pid,
             key: key.to_string(),
             operation: operation.to_string(),
@@ -900,7 +945,24 @@ fn normalize_network(
             malformed(warnings, "network", source, index, "pid is invalid", raw);
             continue;
         }
-        let association = associate_process(explicit_pid, observed_at_ms, processes, root_pid);
+        let mut association = associate_process(explicit_pid, observed_at_ms, processes, root_pid);
+        if let Some(context) = raw.get("event") {
+            if let Some(correlation) = context.get("correlation") {
+                association.inferred = true;
+                association.method = correlation
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .unwrap_or("WFP process attribution is inferred")
+                    .to_string();
+            }
+            if let Some(image) = context
+                .get("image")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
+                association.image = image.to_string();
+            }
+        }
         let mut remote_address = object
             .get("remote_address")
             .and_then(Value::as_str)
@@ -917,7 +979,7 @@ fn normalize_network(
                 .map(str::to_string)
         };
         output.push(NetworkEvent {
-            evidence_id: format!("network:{index}"),
+            evidence_id: stable_evidence_id("network", source, raw),
             pid: association.pid,
             protocol: protocol.to_ascii_lowercase(),
             direction: object
@@ -1053,7 +1115,7 @@ fn normalize_artifacts(
             });
         }
         output.push(Artifact {
-            evidence_id: format!("artifact:{index}"),
+            evidence_id: stable_evidence_id("artifact", source, raw),
             relative_path: relative_path.to_string(),
             kind: object
                 .get("kind")
@@ -1136,6 +1198,58 @@ fn push_target_hash(
     }
 }
 
+fn normalize_capture_health(
+    host: &Value,
+    execution: &Value,
+    warnings: &mut Vec<ValidationWarning>,
+) -> Vec<crate::structs::CaptureHealth> {
+    let mut channels = BTreeMap::new();
+    // The guest execution is preferred for legacy event tables, but final host
+    // capture health exists only in the host report after VM cleanup.
+    for (source, value) in [
+        ("guest execution", execution.get("capture_health")),
+        ("host report", host.pointer("/result/capture_health")),
+    ] {
+        let Some(value) = value else { continue };
+        let Some(rows) = value.as_array().filter(|rows| rows.len() <= 8) else {
+            warnings.push(ValidationWarning {
+                code: "invalid_capture_health".into(),
+                source: source.into(),
+                event_index: None,
+                message: "Capture-health metadata is not a bounded channel array.".into(),
+                raw: None,
+            });
+            continue;
+        };
+        for (index, row) in rows.iter().enumerate() {
+            match serde_json::from_value::<crate::structs::CaptureHealth>(row.clone()) {
+                Ok(health)
+                    if matches!(
+                        health.channel.as_str(),
+                        "guest_wfp" | "guest_pktmon" | "host_ndis"
+                    ) && health.warnings.len() <= 1024
+                        && health.provider_errors.len() <= 1024
+                        && health.artifacts.len() <= 8 =>
+                {
+                    // Guest-supplied rows cannot impersonate the host capture channel.
+                    if source == "host report" || health.channel != "host_ndis" {
+                        channels.insert(health.channel.clone(), health);
+                    }
+                }
+                _ => warnings.push(ValidationWarning {
+                    code: "invalid_capture_health".into(),
+                    source: source.into(),
+                    event_index: Some(index),
+                    message: "Unsupported capture-health metadata; channel coverage is unknown."
+                        .into(),
+                    raw: None,
+                }),
+            }
+        }
+    }
+    channels.into_values().collect()
+}
+
 fn collect_limitations(
     host: &Map<String, Value>,
     guest: &Map<String, Value>,
@@ -1146,6 +1260,11 @@ fn collect_limitations(
     append_strings(&mut output, host.get("limitations"));
     append_strings(&mut output, guest.get("warnings"));
     append_strings(&mut output, execution.get("monitor_warnings"));
+    append_strings(
+        &mut output,
+        host.get("result")
+            .and_then(|result| result.get("monitor_warnings")),
+    );
     if let Some(object) = coverage.as_object() {
         for value in object.values() {
             append_strings(&mut output, value.get("warnings"));
@@ -1385,6 +1504,53 @@ fn invalid_data(message: impl Into<String>) -> io::Error {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn html_data_keeps_final_host_capture_health_and_inferred_wfp_identity() {
+        let guest = serde_json::json!({"capture_health":[
+            {"channel":"guest_wfp","requested":true,"started":true,"stopped":true,"captured_events":12},
+            {"channel":"host_ndis","started":false}
+        ]});
+        let host = serde_json::json!({"result":{"capture_health":[
+            {"channel":"host_ndis","requested":true,"started":true,"stopped":true,"byte_limit":134217728,
+             "captured_bytes":4096,"captured_packets":17,"dropped_packets":null,"truncated":true}
+        ]}});
+        let mut warnings = vec![];
+        let channels = normalize_capture_health(&host, &guest, &mut warnings);
+        assert!(warnings.is_empty());
+        assert_eq!(channels.len(), 2);
+        let host_channel = channels.iter().find(|h| h.channel == "host_ndis").unwrap();
+        assert!(host_channel.started && host_channel.stopped && host_channel.truncated);
+        assert_eq!(host_channel.captured_packets, Some(17));
+        assert_eq!(host_channel.dropped_packets, None);
+        let guest_only = normalize_capture_health(&serde_json::json!({}), &guest, &mut warnings);
+        assert_eq!(
+            guest_only.len(),
+            1,
+            "guest cannot supply the authoritative host channel"
+        );
+        let invalid = normalize_capture_health(
+            &serde_json::json!({"result":{"capture_health":"bad"}}),
+            &serde_json::json!({}),
+            &mut warnings,
+        );
+        assert!(invalid.is_empty() && !warnings.is_empty());
+
+        let (network, _) = normalize_network(
+            &[
+                serde_json::json!({"pid":42,"protocol":"udp","state":"connection_blocked","observed_at_ms":10,
+            "event":{"event_id":5157,"time_utc":"2026-09-08T08:00:00Z","image":"C:\\child.exe",
+            "correlation":{"target":true,"confidence":"medium","reason":"PID and lifetime match"}}}),
+            ],
+            "fixture",
+            &[],
+            42,
+            &mut vec![],
+        );
+        assert!(network[0].association.inferred);
+        assert_eq!(network[0].association.method, "PID and lifetime match");
+        assert_eq!(network[0].raw["event"]["event_id"], 5157);
+    }
 
     #[test]
     fn legacy_process_observations_keep_image_command_line_and_status() {

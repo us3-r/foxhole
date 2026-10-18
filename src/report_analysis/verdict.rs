@@ -25,14 +25,19 @@ pub fn build_verdict(
     config: &VerdictConfig,
 ) -> VerdictReport {
     let mut findings = Vec::new();
-    network_findings(run, &mut findings);
-    child_process_finding(run, &mut findings);
-    ads_finding(run, &mut findings);
-    registry_autostart_finding(run, &mut findings);
-    script_interpreter_network_finding(run, &mut findings);
-    explicit_process_injection_finding(run, &mut findings);
-    credential_access_finding(run, &mut findings);
-    mass_file_finding(run, config, &mut findings);
+    if run.detection.effective_config.behavioral {
+        network_findings(run, &mut findings);
+        child_process_finding(run, &mut findings);
+        ads_finding(run, &mut findings);
+        registry_autostart_finding(run, &mut findings);
+        script_interpreter_network_finding(run, &mut findings);
+        explicit_process_injection_finding(run, &mut findings);
+        credential_access_finding(run, &mut findings);
+        mass_file_finding(run, config, &mut findings);
+    }
+    findings.extend(super::correlation::build(run));
+    findings.extend(super::detection::scanner_findings(run));
+    super::correlation::deduplicate_scores(&mut findings);
 
     findings.sort_by(|left, right| left.rule_id.cmp(&right.rule_id));
     let score = findings
@@ -47,6 +52,23 @@ pub fn build_verdict(
         "malicious"
     } else if score >= 20 {
         "suspicious"
+    } else if findings.iter().any(|f| f.rule_id == "FH-COVERAGE-001")
+        || !run.detection.warnings.is_empty()
+        || run.detection.coverage.values().any(|s| {
+            !matches!(
+                s,
+                crate::detection::Status::Completed | crate::detection::Status::Disabled
+            )
+        })
+        || (!run.detection.coverage.is_empty()
+            && (run.detection.stages.iter().any(|s| {
+                !matches!(
+                    s.status,
+                    crate::detection::Status::Completed | crate::detection::Status::Disabled
+                )
+            }) || !super::detection::telemetry_complete(run)))
+    {
+        "inconclusive"
     } else if findings.is_empty() {
         "benign"
     } else {
@@ -61,7 +83,7 @@ pub fn build_verdict(
     scoring_model.insert("malicious_minimum".to_string(), json!(60));
     scoring_model.insert(
         "calculation".to_string(),
-        json!("sum one contribution per triggered rule; an explicit malicious rule is always malicious"),
+        json!("maximum contribution per behavior family; overlapping evidence is scored once; scanners contribute zero; explicit malicious Foxhole rules remain authoritative"),
     );
 
     VerdictReport {
@@ -266,7 +288,20 @@ fn mass_file_finding(run: &NormalizedRun, config: &VerdictConfig, findings: &mut
         return;
     }
     let mut events = run.file_events.iter().collect::<Vec<_>>();
-    events.sort_by_key(|event| event.observed_at_ms);
+    events.sort_by(|a, b| {
+        (a.observed_at_ms, a.pid, &a.path, &a.action).cmp(&(
+            b.observed_at_ms,
+            b.pid,
+            &b.path,
+            &b.action,
+        ))
+    });
+    events.dedup_by(|a, b| {
+        a.observed_at_ms == b.observed_at_ms
+            && a.pid == b.pid
+            && a.path == b.path
+            && a.action == b.action
+    });
     let mut best: &[&FileEvent] = &[];
     let mut start = 0;
     for end in 0..events.len() {
@@ -323,6 +358,7 @@ fn add_finding(
     });
     evidence.dedup_by(|left, right| left.evidence_id == right.evidence_id);
     findings.push(Finding {
+        details: None,
         rule_id: rule_id.to_string(),
         severity,
         title: title.to_string(),
@@ -628,6 +664,9 @@ mod tests {
 
     fn empty_run() -> NormalizedRun {
         NormalizedRun {
+            capture_health: Vec::new(),
+            network_attempts: Vec::new(),
+            detection: Default::default(),
             schema_version: NORMALIZED_SCHEMA_VERSION.to_string(),
             run_id: "test-run".to_string(),
             target: json!({"path": "sample.exe"}),

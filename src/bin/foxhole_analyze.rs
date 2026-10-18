@@ -1,6 +1,8 @@
 use clap::Parser;
 use dialoguer::Select;
-use foxhole::report_analysis::{DiscoveredRun, analyze_run, discover_runs};
+use foxhole::report_analysis::{
+    DiscoveredRun, analyze_run, analyze_run_with_virustotal_settings, discover_runs,
+};
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
@@ -11,9 +13,18 @@ struct Args {
     /// Foxhole artifact root (containing reports/ and hyperv/) or one Hyper-V run directory
     #[arg(value_name = "RUN_ROOT")]
     run_root: PathBuf,
+
+    /// Path to settings.json containing the VirusTotal API key and trusted engine list
+    #[arg(short = 's', long, default_value = "settings.json")]
+    settings: PathBuf,
+
+    /// Generate the report without querying VirusTotal
+    #[arg(long)]
+    no_virustotal: bool,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     let runs = discover_runs(&args.run_root)?;
     let selected = if runs.len() > 1 {
@@ -24,13 +35,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     let analysis_root = selected
         .map(|run| run.run_directory.clone())
         .unwrap_or(args.run_root);
-    let outputs = analyze_run(&analysis_root)?;
+    let progress =
+        foxhole::progress::Stage::start("Normalize evidence and generate JSON/HTML reports");
+    let outputs = if args.no_virustotal {
+        analyze_run(&analysis_root)?
+    } else {
+        analyze_run_with_virustotal_settings(&analysis_root, &args.settings).await?
+    };
+    progress.finish(true);
     if let Some(run) = selected {
         println!("selected_run={}", clean_path(&run.run_directory));
     }
     println!("normalized={}", clean_path(&outputs.normalized));
+    println!("stages={}", clean_path(&outputs.stages));
+    println!("detection={}", clean_path(&outputs.detection));
     println!("verdict={}", clean_path(&outputs.verdict));
     println!("iocs={}", clean_path(&outputs.iocs));
+    println!("virustotal={}", clean_path(&outputs.virustotal));
     let web_path = clean_path(&outputs.web);
     println!("web={web_path}");
     // Keep paths as data. Emitting shell syntax would let a quote in an otherwise valid path

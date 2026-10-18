@@ -1,0 +1,14 @@
+rule:
+  meta:
+    name: import debugger detection function
+    namespace: anti-analysis/anti-debugging
+    authors: [Foxhole]
+    scopes:
+      static: file
+      dynamic: unsupported
+    att&ck:
+      - Defense Evasion::Debugger Evasion [T1622]
+  features:
+    - or:
+      - import: kernel32.IsDebuggerPresent
+      - import: kernel32.CheckRemoteDebuggerPresent

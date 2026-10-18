@@ -172,6 +172,7 @@ pub fn execute(
     let (stderr, stderr_capture) = finish_reader(stderr_reader, "stderr", &mut warnings);
 
     let mut result = SandboxRunResult {
+        capture_health: Vec::new(),
         backend: "guest_native".to_string(),
         network_policy: network_policy_name(request.network_policy).to_string(),
         integrity_level: identity.integrity_level.to_string(),

@@ -132,11 +132,11 @@ fn execute_native(invocation: &PowerShellInvocation) -> SandboxResult<Value> {
         ));
     }
 
-    println!(
+    crate::progress::debug(format_args!(
         "[hyperv/powershell debug] starting: {} (timeout={}s)",
         invocation.operation,
         invocation.timeout.as_secs()
-    );
+    ));
 
     let executable = system_powershell_path()?;
     let system_root = executable
@@ -257,11 +257,11 @@ fn execute_native(invocation: &PowerShellInvocation) -> SandboxResult<Value> {
             Ok(None) if Instant::now() < deadline => {
                 let now = Instant::now();
                 if now.duration_since(last_progress) >= Duration::from_secs(10) {
-                    println!(
+                    crate::progress::debug(format_args!(
                         "[hyperv/powershell debug] still running: {} (elapsed={}s)",
                         invocation.operation,
                         now.duration_since(started_at).as_secs()
-                    );
+                    ));
                     last_progress = now;
                 }
                 thread::sleep(POLL_INTERVAL)
@@ -311,11 +311,11 @@ fn execute_native(invocation: &PowerShellInvocation) -> SandboxResult<Value> {
         ));
     }
     if !stderr.stored.is_empty() {
-        println!(
+        crate::progress::debug(format_args!(
             "[hyperv/powershell debug] {} stderr: {}",
             invocation.operation,
             bounded_diagnostic(&stderr.stored)
-        );
+        ));
     }
     if !status.success() {
         return Err(SandboxError::new(
@@ -329,11 +329,11 @@ fn execute_native(invocation: &PowerShellInvocation) -> SandboxResult<Value> {
         ));
     }
     let result = parse_envelope(invocation.operation, &stdout.stored);
-    println!(
+    crate::progress::debug(format_args!(
         "[hyperv/powershell debug] finished: {} ({})",
         invocation.operation,
         if result.is_ok() { "ok" } else { "failed" }
-    );
+    ));
     result
 }
 
@@ -344,7 +344,7 @@ fn terminate_and_reap(child: &mut std::process::Child) {
 }
 
 #[cfg(target_os = "windows")]
-fn system_powershell_path() -> SandboxResult<std::path::PathBuf> {
+pub(crate) fn system_powershell_path() -> SandboxResult<std::path::PathBuf> {
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
     #[link(name = "kernel32")]

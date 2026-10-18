@@ -169,10 +169,77 @@ fn execute_claimed_run<E: GuestExecutor>(
 ) -> AgentResult<(GuestTerminalOutcome, String)> {
     let mut workspace = GuestWorkspace::stage(layout, request, &config.staging_root)?;
     publisher.publish(ProtocolState::Running, None, None)?;
+    let mut detection = crate::detection::Session::new();
+    let mut detection_warnings = Vec::new();
+    if let Err(error) = detection.scan(
+        &request.detection,
+        &workspace,
+        "primary",
+        &workspace.target,
+        request.target_sha256.as_deref().unwrap_or_default(),
+        false,
+    ) {
+        detection_warnings.push(error.to_string());
+    }
     let execution_result = executor.execute(request, &workspace);
+    let execution_result = execution_result.map(|mut execution| {
+        if let Err(error) = detection.collect_files(
+            &request.detection,
+            &workspace,
+            &execution.result.file_observations,
+        ) {
+            detection_warnings.push(error.to_string());
+        }
+        let mut targets = execution.artifacts.clone();
+        targets.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+        let maximum = request
+            .detection
+            .stages()
+            .iter()
+            .map(|(_, s)| s.limits.files)
+            .min()
+            .unwrap_or(1);
+        let mut scanned = 0;
+        for artifact in targets {
+            let name = artifact.relative_path.to_ascii_lowercase();
+            let capture = name.ends_with(".pcapng");
+            let executable = [
+                ".exe", ".dll", ".sys", ".ps1", ".bat", ".cmd", ".vbs", ".js",
+            ]
+            .iter()
+            .any(|ext| name.ends_with(ext));
+            if !capture && !executable {
+                continue;
+            }
+            if scanned >= maximum {
+                detection_warnings.push("detection file count limit exhausted".to_string());
+                break;
+            }
+            scanned += 1;
+            if let Ok(path) = foxhole::sandbox::hyperv::guest_protocol::wire_path_to_native(
+                &workspace.output,
+                &artifact.relative_path,
+            ) && let Err(error) = detection.scan(
+                &request.detection,
+                &workspace,
+                &artifact.relative_path,
+                &path,
+                &artifact.sha256,
+                capture,
+            ) {
+                detection_warnings.push(error.to_string());
+            }
+        }
+        detection_warnings.extend(detection.warnings);
+        detection_warnings.sort();
+        detection_warnings.dedup();
+        execution.artifacts.extend(detection.artifacts);
+        execution
+    });
     let cleanup_result = workspace.cleanup();
     let execution = execution_result?;
     let mut warnings = Vec::new();
+    warnings.extend(detection_warnings);
     if !execution.result.cleanup.success {
         warnings.extend(execution.result.cleanup.warnings.iter().cloned());
     }

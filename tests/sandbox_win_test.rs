@@ -65,6 +65,10 @@ fn dry_run_accepts_an_ipv4_and_ipv6_allow_list() {
 #[cfg(target_os = "windows")]
 #[test]
 fn live_capture_only_and_allow_internet_modes_launch_successfully() {
+    if !require_administrator("live_capture_only_and_allow_internet_modes_launch_successfully") {
+        return;
+    }
+
     let _lock = sandbox_test_lock();
     let bin = env!("CARGO_BIN_EXE_foxhole");
     for policy in ["capture-only", "allow-internet"] {
@@ -100,6 +104,10 @@ fn live_capture_only_and_allow_internet_modes_launch_successfully() {
 #[cfg(target_os = "windows")]
 #[test]
 fn enforcing_network_modes_fail_closed_without_wfp_permission() {
+    if !require_administrator("enforcing_network_modes_fail_closed_without_wfp_permission") {
+        return;
+    }
+
     let _lock = sandbox_test_lock();
     let bin = env!("CARGO_BIN_EXE_foxhole");
     for arguments in [
@@ -155,4 +163,15 @@ fn sandbox_test_lock() -> std::sync::MutexGuard<'static, ()> {
     LOCK.get_or_init(|| std::sync::Mutex::new(()))
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(target_os = "windows")]
+fn require_administrator(test_name: &str) -> bool {
+    // SAFETY: IsUserAnAdmin takes no pointers and only queries the current process token.
+    if unsafe { windows::Win32::UI::Shell::IsUserAnAdmin().as_bool() } {
+        return true;
+    }
+
+    eprintln!("skipping {test_name}: live restricted-process tests require administrator rights");
+    false
 }

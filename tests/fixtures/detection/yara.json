@@ -1,0 +1,74 @@
+{
+  "completed_at_ms": null,
+  "duration_ms": null,
+  "evidence_ids": [
+    "primary"
+  ],
+  "findings": [
+    {
+      "attack": [],
+      "evidence_ids": [
+        "primary"
+      ],
+      "features": [],
+      "id": "match:e13f7cb1068a5bbca4bad7e00254e481",
+      "locations": [
+        {
+          "excerpt_hex": "464f58484f4c455f4841524d4c4553535f54455354",
+          "kind": "file",
+          "length": 21,
+          "offset": 1024
+        }
+      ],
+      "maec": {},
+      "mbc": [],
+      "metadata": {
+        "description": "Harmless fixture"
+      },
+      "namespace": "foxhole",
+      "rule": "harmless_marker",
+      "rule_pack": "foxhole-test",
+      "scope": "file",
+      "tags": [],
+      "title": "harmless_marker"
+    }
+  ],
+  "limits": {
+    "depth": 16,
+    "features": 256,
+    "files": 32,
+    "findings": 512,
+    "flows": 4096,
+    "input_bytes": 33554432,
+    "match_bytes": 64,
+    "memory_bytes": 536870912,
+    "offsets": 256,
+    "output_bytes": 4194304,
+    "packets": 100000,
+    "rules": 10000,
+    "string_bytes": 2048,
+    "strings": 2048,
+    "timeout_seconds": 60
+  },
+  "original": null,
+  "packets": [],
+  "pe": null,
+  "rule_packs": [
+    {
+      "id": "foxhole-test",
+      "sha256": "b90f27f8b1ba0c194d8f9b78cfb381d71da04fbbbeeda52cfe2d394ffc8af8f7",
+      "trusted": true,
+      "version": "1"
+    }
+  ],
+  "scanner": "yara",
+  "schema_version": 1,
+  "started_at_ms": null,
+  "status": "completed",
+  "strings": [],
+  "target": "primary",
+  "target_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+  "truncated": false,
+  "version": "4.5.2",
+  "warnings": []
+}

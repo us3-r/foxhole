@@ -1,0 +1,159 @@
+{
+  "completed_at_ms": null,
+  "duration_ms": null,
+  "evidence_ids": [
+    "primary"
+  ],
+  "findings": [
+    {
+      "attack": [],
+      "evidence_ids": [
+        "primary"
+      ],
+      "features": [
+        "flow:a98fa9055ab0206c68b49b79c75ffd3c",
+        "timestamp_us:1001000"
+      ],
+      "id": "match:a77aa1c07d2a40ce7a5aeef95e513457:2",
+      "locations": [
+        {
+          "excerpt_hex": "",
+          "kind": "packet",
+          "length": 0,
+          "offset": 2
+        }
+      ],
+      "maec": {},
+      "mbc": [],
+      "metadata": {},
+      "namespace": "foxhole/packet",
+      "rule": "foxhole_test_domain",
+      "rule_pack": "foxhole-test",
+      "scope": "file",
+      "tags": [],
+      "title": "foxhole_test_domain"
+    }
+  ],
+  "limits": {
+    "depth": 16,
+    "features": 256,
+    "files": 32,
+    "findings": 512,
+    "flows": 4096,
+    "input_bytes": 33554432,
+    "match_bytes": 64,
+    "memory_bytes": 536870912,
+    "offsets": 256,
+    "output_bytes": 4194304,
+    "packets": 100000,
+    "rules": 10000,
+    "string_bytes": 2048,
+    "strings": 2048,
+    "timeout_seconds": 60
+  },
+  "original": null,
+  "packets": [
+    {
+      "bytes": 87,
+      "destination": "1.1.1.1",
+      "destination_port": 50000,
+      "direction": "unknown",
+      "dns_answers": [
+        "1.1.1.1"
+      ],
+      "dns_query": "example.com",
+      "evidence_ids": [
+        "primary"
+      ],
+      "flow": "9244fce93ecc4f315ceaf198c6afc8bd",
+      "http_host": null,
+      "http_method": null,
+      "http_path": null,
+      "id": "packet:1",
+      "packet": 1,
+      "protocol": "udp",
+      "source": "10.0.0.2",
+      "source_port": 53,
+      "timestamp_us": 1000000,
+      "tls": {},
+      "tls_sni": null,
+      "user_agent": null
+    },
+    {
+      "bytes": 123,
+      "destination": "1.1.1.1",
+      "destination_port": 80,
+      "direction": "unknown",
+      "dns_answers": [],
+      "dns_query": null,
+      "evidence_ids": [
+        "primary"
+      ],
+      "flow": "a98fa9055ab0206c68b49b79c75ffd3c",
+      "http_host": "example.com",
+      "http_method": "GET",
+      "http_path": "/fixture",
+      "id": "packet:2",
+      "packet": 2,
+      "protocol": "tcp",
+      "source": "10.0.0.2",
+      "source_port": 50001,
+      "timestamp_us": 1001000,
+      "tls": {},
+      "tls_sni": null,
+      "user_agent": "Foxhole/1.0"
+    },
+    {
+      "bytes": 126,
+      "destination": "1.1.1.1",
+      "destination_port": 443,
+      "direction": "unknown",
+      "dns_answers": [],
+      "dns_query": null,
+      "evidence_ids": [
+        "primary"
+      ],
+      "flow": "2aade65a365117f2057cf623fcd78648",
+      "http_host": null,
+      "http_method": null,
+      "http_path": null,
+      "id": "packet:3",
+      "packet": 3,
+      "protocol": "tcp",
+      "source": "10.0.0.2",
+      "source_port": 50002,
+      "timestamp_us": 1002000,
+      "tls": {
+        "ja3": "1e7c622032b0cb79401b0f7be3793a1a",
+        "record_version": "771",
+        "visibility": "handshake_only_encrypted_http_not_inspected"
+      },
+      "tls_sni": "example.com",
+      "user_agent": null
+    }
+  ],
+  "pe": null,
+  "rule_packs": [
+    {
+      "id": "foxhole-test",
+      "sha256": "9ca995134b4dcef0a0abd63ff570fe8f7368a12583c69e3ccee7633f146049e9",
+      "trusted": true,
+      "version": "1"
+    }
+  ],
+  "scanner": "network",
+  "schema_version": 1,
+  "started_at_ms": null,
+  "status": "partial",
+  "strings": [],
+  "target": "primary",
+  "target_sha256": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+  "truncated": false,
+  "version": "foxhole-packet-1",
+  "warnings": [
+    {
+      "code": "packet_local_analysis_no_tcp_reassembly_encrypted_http_not_inspected",
+      "message": "packet local analysis no tcp reassembly encrypted http not inspected"
+    }
+  ]
+}

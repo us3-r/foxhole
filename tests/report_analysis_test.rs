@@ -15,6 +15,7 @@ fn phase_1_to_3_golden_fixture_is_complete_and_deterministic() {
     let first_normalized_bytes = fs::read(&first.normalized).expect("read normalized output");
     let first_verdict_bytes = fs::read(&first.verdict).expect("read verdict output");
     let first_ioc_bytes = fs::read(&first.iocs).expect("read IOC output");
+    let first_virustotal_bytes = fs::read(&first.virustotal).expect("read VirusTotal output");
     let first_web_bytes = read_web_outputs(&fixture.join("web"));
 
     let second = analyze_run(&fixture).expect("reanalyze golden fixture");
@@ -24,6 +25,10 @@ fn phase_1_to_3_golden_fixture_is_complete_and_deterministic() {
     );
     assert_eq!(first_verdict_bytes, fs::read(&second.verdict).unwrap());
     assert_eq!(first_ioc_bytes, fs::read(&second.iocs).unwrap());
+    assert_eq!(
+        first_virustotal_bytes,
+        fs::read(&second.virustotal).unwrap()
+    );
     assert_eq!(first_web_bytes, read_web_outputs(&fixture.join("web")));
 
     let normalized: NormalizedRun = serde_json::from_slice(&first_normalized_bytes).unwrap();
@@ -97,6 +102,7 @@ fn phase_1_to_3_golden_fixture_is_complete_and_deterministic() {
         "processes.html",
         "network.html",
         "iocs.html",
+        "virustotal.html",
     ] {
         let html = String::from_utf8(first_web_bytes[page].clone()).unwrap();
         assert!(html.contains("assets/style.css"));
@@ -108,6 +114,7 @@ fn phase_1_to_3_golden_fixture_is_complete_and_deterministic() {
             "timeline.html",
             "processes.html",
             "iocs.html",
+            "virustotal.html",
         ] {
             assert!(html.contains(&format!("href=\"{link}\"")));
         }
@@ -116,6 +123,7 @@ fn phase_1_to_3_golden_fixture_is_complete_and_deterministic() {
     assert!(!application.contains("innerHTML"));
     assert!(!application.contains("fetch("));
     assert!(application.contains("function renderCreatedFileHashes()"));
+    assert!(application.contains("function renderVirusTotalFile(file)"));
     let overview = String::from_utf8(first_web_bytes["index.html"].clone()).unwrap();
     assert!(overview.contains("id=\"target-sha256\""));
     assert!(overview.contains("id=\"target-virustotal\""));
@@ -123,7 +131,16 @@ fn phase_1_to_3_golden_fixture_is_complete_and_deterministic() {
     assert!(overview.find("id=\"created-file-table\"") < overview.find("class=\"dashboard-grid\""));
     let data_script = String::from_utf8(first_web_bytes["data/report-data.js"].clone()).unwrap();
     assert!(data_script.contains(&normalized.run_id));
-    assert!(data_script.starts_with("window.FOXHOLE_REPORT = "));
+    let literal = data_script
+        .strip_prefix("window.FOXHOLE_REPORT = JSON.parse(")
+        .unwrap()
+        .trim_end()
+        .strip_suffix(");")
+        .unwrap();
+    let json: String = serde_json::from_str(literal).unwrap();
+    let data: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(data.get("virustotal").is_some());
+    assert!(data["normalized"].get("detection").is_some());
 }
 
 fn assert_indicator(iocs: &IocReport, ioc_type: &str, value: &str, contextual: bool) {
@@ -140,12 +157,17 @@ fn assert_indicator(iocs: &IocReport, ioc_type: &str, value: &str, contextual: b
 fn read_web_outputs(root: &Path) -> BTreeMap<String, Vec<u8>> {
     [
         "index.html",
+        "parameters.html",
+        "network.html",
+        "detection.html",
         "findings.html",
         "timeline.html",
         "processes.html",
         "iocs.html",
+        "virustotal.html",
         "assets/style.css",
         "assets/app.js",
+        "assets/detection.js",
         "data/report-data.js",
     ]
     .into_iter()

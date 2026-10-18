@@ -357,7 +357,10 @@ mod tests {
         let relative = absolute_clean_input_path(Path::new("Cargo.toml")).unwrap();
         assert!(relative.is_absolute());
         assert!(relative.ends_with("Cargo.toml"));
-        assert_eq!(local_drive_root(&relative).unwrap(), PathBuf::from(r"C:\"));
+        assert_eq!(
+            local_drive_root(&relative).unwrap(),
+            local_drive_root(&std::env::current_dir().unwrap()).unwrap()
+        );
 
         assert!(local_drive_root(Path::new("relative")).is_err());
         assert!(absolute_clean_input_path(Path::new(r"C:\temp\..\escape.bin")).is_err());

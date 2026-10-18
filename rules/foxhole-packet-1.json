@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {"id": "foxhole_fixture_http", "field": "http_host", "equals": "foxhole-fixture.invalid"},
+    {"id": "foxhole_fixture_dns", "field": "dns_query", "equals": "foxhole-fixture.invalid"}
+  ]
+}

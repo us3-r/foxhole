@@ -1185,7 +1185,55 @@ pub(crate) fn windows_paths_equal(left: &Path, right: &Path) -> bool {
         value.trim_end_matches('\\').to_lowercase()
     }
 
-    normalized(left) == normalized(right)
+    let left_normalized = normalized(left);
+    let right_normalized = normalized(right);
+    if left_normalized == right_normalized {
+        return true;
+    }
+
+    // Windows APIs and environment variables may expose the same directory through its long
+    // name and an 8.3 alias (for example, `runneradmin` and `RUNNER~1`). Expand both existing
+    // paths before rejecting the handle/path match. Security-sensitive callers reject and pin
+    // reparse components before accepting this comparison.
+    match (long_windows_path(left), long_windows_path(right)) {
+        (Some(left), Some(right)) => normalized(&left) == normalized(&right),
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn long_windows_path(path: &Path) -> Option<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetLongPathNameW(short_path: *const u16, long_path: *mut u16, buffer_length: u32)
+        -> u32;
+    }
+
+    let source: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut buffer = vec![0u16; source.len().max(512)];
+    loop {
+        let written = unsafe {
+            GetLongPathNameW(
+                source.as_ptr(),
+                buffer.as_mut_ptr(),
+                u32::try_from(buffer.len()).unwrap_or(u32::MAX),
+            )
+        } as usize;
+        if written == 0 {
+            return None;
+        }
+        if written < buffer.len() {
+            return Some(PathBuf::from(OsString::from_wide(&buffer[..written])));
+        }
+        buffer.resize(written.saturating_add(1), 0);
+    }
 }
 
 fn validate_directory_metadata(path: &Path, metadata: &fs::Metadata) -> io::Result<()> {

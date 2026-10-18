@@ -4,7 +4,7 @@ use crate::monitor::ObservationAvailability;
 use crate::runner::{AgentError, AgentResult};
 use foxhole::sandbox::hyperv::guest_protocol::ArtifactManifestEntry;
 use foxhole::structs::{
-    FileObservation, NetworkObservation, ProcessObservation, RegistryObservation,
+    CaptureHealth, FileObservation, NetworkObservation, ProcessObservation, RegistryObservation,
 };
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
@@ -32,6 +32,7 @@ pub struct TelemetrySession {
 
 #[derive(Debug, Default)]
 pub struct TelemetryResult {
+    pub capture_health: Vec<CaptureHealth>,
     pub processes: Vec<ProcessObservation>,
     pub network_connections: Vec<NetworkObservation>,
     pub file_observations: Vec<FileObservation>,
@@ -44,6 +45,7 @@ pub struct TelemetryResult {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
 struct TelemetryBaseline {
+    wfp_available: bool,
     sysmon_available: bool,
     sysmon_record_id: u64,
     security_record_id: u64,
@@ -54,6 +56,7 @@ struct TelemetryBaseline {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct CollectedTelemetry {
+    capture_health: Vec<CaptureHealth>,
     processes: Vec<ProcessObservation>,
     network_connections: Vec<NetworkObservation>,
     file_observations: Vec<FileObservation>,
@@ -69,7 +72,9 @@ struct CollectedTelemetry {
 #[derive(Serialize)]
 struct CollectionRequest {
     root_pid: u32,
+    ended_unix_ms: u64,
     started_unix_ms: u64,
+    wfp_available: bool,
     sysmon_available: bool,
     sysmon_record_id: u64,
     security_record_id: u64,
@@ -78,7 +83,6 @@ struct CollectionRequest {
 
 impl TelemetrySession {
     pub fn start(workspace: &GuestWorkspace) -> Self {
-        let started_unix_ms = unix_ms();
         let mut warnings = Vec::new();
         let baseline = match invoke_collector::<_, TelemetryBaseline>(
             workspace,
@@ -103,7 +107,10 @@ impl TelemetrySession {
         };
         Self {
             baseline,
-            started_unix_ms,
+            // Audit policy setup emits asynchronous 4719 records. Bound collection
+            // after our setup, but before the target can launch; subsequent policy
+            // changes still signal possible loss/tampering.
+            started_unix_ms: unix_ms(),
             packet_etl,
             packet_capture_started,
             warnings,
@@ -111,16 +118,52 @@ impl TelemetrySession {
     }
 
     pub fn finish(mut self, workspace: &GuestWorkspace, root_pid: u32) -> TelemetryResult {
+        let ended_unix_ms = unix_ms();
         let mut result = TelemetryResult::default();
+        let mut packet_health = CaptureHealth {
+            channel: "guest_pktmon".into(), requested: true, started: self.packet_capture_started,
+            byte_limit: Some(MAX_PACKET_ARTIFACT_BYTES),
+            warnings: vec!["Packet Monitor uses a bounded circular ETL; overwrite and provider loss counters are unknown. Encrypted traffic content is unavailable.".into()],
+            ..CaptureHealth::default()
+        };
         if self.packet_capture_started {
             if let Err(error) = stop_packet_capture() {
-                self.warnings
+                packet_health
+                    .provider_errors
                     .push(format!("stop packet capture failed: {error}"));
             } else {
+                packet_health.stopped = true;
                 match archive_packet_capture(workspace, &self.packet_etl) {
-                    Ok(artifacts) => result.artifacts = artifacts,
-                    Err(error) => self
-                        .warnings
+                    Ok(artifacts) => {
+                        packet_health.artifacts =
+                            artifacts.iter().map(|a| a.relative_path.clone()).collect();
+                        packet_health.captured_bytes = artifacts
+                            .iter()
+                            .find(|a| a.kind == "packet_capture_etl")
+                            .map(|a| a.size_bytes);
+                        packet_health.truncated = packet_health
+                            .captured_bytes
+                            .is_some_and(|n| n >= MAX_PACKET_ARTIFACT_BYTES);
+                        if let Some(pcap) =
+                            artifacts.iter().find(|a| a.kind == "packet_capture_pcapng")
+                        {
+                            match foxhole::network_telemetry::pcapng_counts(
+                                &workspace.output.join(&pcap.relative_path),
+                                MAX_PACKET_ARTIFACT_BYTES,
+                            ) {
+                                Ok(counts) => {
+                                    packet_health.captured_packets = Some(counts.packets);
+                                    packet_health.truncated |= counts.truncated;
+                                }
+                                Err(error) => packet_health.provider_errors.push(error.to_string()),
+                            }
+                        } else {
+                            packet_health.provider_errors.push("PCAPNG conversion unavailable or failed; ETL retained when available".into());
+                        }
+                        result.artifacts = artifacts;
+                    }
+                    Err(error) => packet_health
+                        .provider_errors
                         .push(format!("archive packet capture failed: {error}")),
                 }
             }
@@ -132,6 +175,8 @@ impl TelemetrySession {
         thread::sleep(Duration::from_secs(1));
         let request = CollectionRequest {
             root_pid,
+            ended_unix_ms,
+            wfp_available: self.baseline.wfp_available,
             started_unix_ms: self.started_unix_ms,
             sysmon_available: self.baseline.sysmon_available,
             sysmon_record_id: self.baseline.sysmon_record_id,
@@ -140,6 +185,7 @@ impl TelemetrySession {
         };
         match invoke_collector::<_, CollectedTelemetry>(workspace, "Collect", &request) {
             Ok(collected) => {
+                result.capture_health = collected.capture_health;
                 result.processes = collected.processes;
                 result.network_connections = collected.network_connections;
                 result.file_observations = collected.file_observations;
@@ -152,9 +198,15 @@ impl TelemetrySession {
                 ) {
                     Ok(Some(artifact)) => result.artifacts.push(artifact),
                     Ok(None) => {}
-                    Err(error) => self
-                        .warnings
-                        .push(format!("archive raw telemetry failed: {error}")),
+                    Err(error) => {
+                        let warning = format!("archive raw telemetry failed: {error}");
+                        self.warnings.push(warning.clone());
+                        for health in &mut result.capture_health {
+                            health.artifacts.clear();
+                            health.retained_events = Some(0);
+                            health.provider_errors.push(warning.clone());
+                        }
+                    }
                 }
                 result.availability = ObservationAvailability {
                     processes: collected.sysmon_collected,
@@ -172,6 +224,22 @@ impl TelemetrySession {
             Err(error) => self
                 .warnings
                 .push(format!("structured telemetry collection failed: {error}")),
+        }
+        if result.capture_health.is_empty() {
+            result.capture_health.push(CaptureHealth {
+                channel: "guest_wfp".into(),
+                requested: true,
+                started: self.baseline.wfp_available,
+                byte_limit: Some(8 * 1024 * 1024),
+                event_limit: Some(10_000),
+                raw_event_limit: Some(5_000),
+                provider_errors: vec!["WFP collection did not return health metadata".into()],
+                ..CaptureHealth::default()
+            });
+        }
+        result.capture_health.push(packet_health);
+        for health in &result.capture_health {
+            self.warnings.extend(health.coverage_warnings());
         }
         result.warnings = std::mem::take(&mut self.warnings);
         result
@@ -435,9 +503,6 @@ fn archive_json_artifact<T: Serialize>(
             error,
         )
     })?;
-    if bytes == b"[]" {
-        return Ok(None);
-    }
     if bytes.len() as u64 > MAX_TELEMETRY_JSON_BYTES {
         return Err(AgentError::new(
             "telemetry",
@@ -665,9 +730,7 @@ mod tests {
 
     #[test]
     fn collector_filters_event_log_queries_before_materializing_rows() {
-        assert!(COLLECTOR_SCRIPT.contains(
-            "-FilterHashtable @{ LogName=$sysmonLog; Id=$structuredIds; StartTime=$eventStartTime }",
-        ));
+        assert!(COLLECTOR_SCRIPT.contains("-LogName $sysmonLog -FilterXPath $sysmonQuery",));
         assert!(
             !COLLECTOR_SCRIPT
                 .contains("Get-WinEvent -LogName $sysmonLog -MaxEvents ($maxEvents + 1)",)
@@ -675,15 +738,14 @@ mod tests {
     }
 
     #[test]
-    fn collector_archives_only_bounded_target_related_raw_events() {
+    fn collector_archives_bounded_wfp_events_including_unattributed_attempts() {
         let script = COLLECTOR_SCRIPT.replace("\r\n", "\n");
         assert!(script.contains("$maxRawEvents = 5000"));
         assert!(script.contains(
             "if (-not $guids.Contains($guid)) { continue }\n    if ($rawEvents.Count -lt $maxRawEvents)",
         ));
-        assert!(script.contains(
-            "if (-not $pids.Contains($processId)) { continue }\n        if ($rawEvents.Count -lt $maxRawEvents)",
-        ));
+        assert!(!script.contains("if (-not $pids.Contains($processId)) { continue }"));
+        assert!(script.contains("$script:rawBytes + $bytes) -gt 8MB"));
     }
 
     #[test]

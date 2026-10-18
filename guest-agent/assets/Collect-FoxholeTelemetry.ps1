@@ -15,6 +15,29 @@ $maxHashFileBytes = 128MB
 $maxHashTotalBytes = 256MB
 
 function Write-Result([object] $Value) {
+    if ($Value.Contains('raw_events')) {
+        # Reserve the raw archive (8 MiB) even when verbose structured views overflow.
+        # The Rust helper accepts at most 16 MiB for the entire response.
+        [long]$structuredBytes = 0
+        foreach ($field in @('processes','network_connections','file_observations','registry_observations')) {
+            $kept = [Collections.Generic.List[object]]::new()
+            $clipped = $false
+            foreach ($row in $Value[$field]) {
+                $bytes = [Text.Encoding]::UTF8.GetByteCount(($row | ConvertTo-Json -Compress -Depth 8)) + 1
+                if (($structuredBytes + $bytes) -le 6MB) { $kept.Add($row); $structuredBytes += $bytes }
+                else { $clipped = $true }
+            }
+            $Value[$field] = @($kept)
+            if ($clipped) {
+                $Value.truncated = $true
+                $Value.warnings += "structured $field byte limit reached; raw events have an independent bounded archive"
+                if ($field -eq 'network_connections') {
+                    $Value.capture_health[0].truncated = $true
+                    $Value.capture_health[0].warnings += 'Structured network observations exceeded the shared 6 MiB view limit.'
+                }
+            }
+        }
+    }
     $json = $Value | ConvertTo-Json -Compress -Depth 8
     [IO.File]::WriteAllText($OutputPath, $json, [Text.UTF8Encoding]::new($false))
 }
@@ -33,6 +56,7 @@ function Event-Data([object] $Event) {
     $values = @{}
     $xml = [xml]$Event.ToXml()
     foreach ($item in @($xml.Event.EventData.Data)) {
+        if ($null -eq $item -or [string]::IsNullOrWhiteSpace([string]$item.Name)) { continue }
         $values[[string]$item.Name] = [string]$item.'#text'
     }
     return $values
@@ -219,11 +243,17 @@ if ($Mode -eq 'Baseline') {
         $warnings.Add('Sysmon channel exists but an exact process-creation readiness probe was not observed')
         $sysmonAvailable = $false
     }
-    try {
-        & auditpol.exe /set /subcategory:'Filtering Platform Connection' /success:enable /failure:enable | Out-Null
-        if ($LASTEXITCODE -ne 0) { $warnings.Add('could not enable WFP connection auditing') }
-    } catch { $warnings.Add('could not enable WFP connection auditing') }
+    $wfpAvailable = $true
+    # Locale-independent subcategory GUIDs: Packet Drop and Connection.
+    foreach ($subcategory in @('{0CCE9225-69AE-11D9-BED3-505054503030}', '{0CCE9226-69AE-11D9-BED3-505054503030}')) {
+        try {
+            & "$env:SystemRoot\System32\auditpol.exe" /set /subcategory:$subcategory /success:enable /failure:enable | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "auditpol exited $LASTEXITCODE" }
+        } catch { $wfpAvailable = $false; $warnings.Add("could not enable WFP audit subcategory $subcategory`: $($_.Exception.Message)") }
+    }
+    try { Get-WinEvent -ListLog Security -ErrorAction Stop | Out-Null } catch { $wfpAvailable = $false; $warnings.Add('Security log unavailable') }
     Write-Result ([ordered]@{
+        wfp_available = $wfpAvailable
         sysmon_available = $sysmonAvailable
         sysmon_record_id = if ($sysmonAvailable) { Last-Record $sysmonLog } else { [uint64]0 }
         security_record_id = Last-Record 'Security'
@@ -235,20 +265,25 @@ if ($Mode -eq 'Baseline') {
 
 $request = Get-Content -LiteralPath $InputPath -Raw | ConvertFrom-Json
 $warnings = [Collections.Generic.List[string]]::new()
+$eventEndTime = if ($request.ended_unix_ms) { [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$request.ended_unix_ms).UtcDateTime } else { [DateTime]::UtcNow }
 $eventStartTime = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$request.started_unix_ms).LocalDateTime.AddSeconds(-2)
 $sysmonRows = @()
 $truncated = $false
 if ([bool]$request.sysmon_available) {
     try {
         Get-WinEvent -ListLog $sysmonLog -ErrorAction Stop | Out-Null
-        $structuredIds = @(1,3,5,9,11,12,13,14,15,17,18,22,25,26,27,28,29,255)
+        $structuredIds = @(1,3,5,8,9,10,11,12,13,14,15,17,18,22,25,26,27,28,29,255)
+        # Apply the baseline inside Event Log, before MaxEvents. Filtering it after
+        # the cap lets older high-volume ProcessAccess records hide the target tree.
+        $eventIdFilter = ($structuredIds | ForEach-Object { 'EventID=' + [int]$_ }) -join ' or '
+        $sysmonStartUtc = $eventStartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [Globalization.CultureInfo]::InvariantCulture)
+        $sysmonQuery = "*[System[($eventIdFilter) and EventRecordID > $([uint64]$request.sysmon_record_id) and TimeCreated[@SystemTime >= '$sysmonStartUtc']]]"
         $events = @()
         $targetProcessObserved = $false
         $sysmonDeadline = [DateTime]::UtcNow.AddSeconds(5)
         do {
-            $events = @(Get-WinEvent -FilterHashtable @{ LogName=$sysmonLog; Id=$structuredIds; StartTime=$eventStartTime } `
-                -Oldest -MaxEvents ($maxEvents + 1) -ErrorAction SilentlyContinue |
-                Where-Object { [uint64]$_.RecordId -gt [uint64]$request.sysmon_record_id })
+            $events = @(Get-WinEvent -LogName $sysmonLog -FilterXPath $sysmonQuery `
+                -Oldest -MaxEvents ($maxEvents + 1) -ErrorAction SilentlyContinue)
             foreach ($candidate in $events) {
                 if ([int]$candidate.Id -ne 1) { continue }
                 $candidateData = Event-Data $candidate
@@ -280,6 +315,8 @@ if ([bool]$request.sysmon_available) {
 $guids = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 $pids = [Collections.Generic.HashSet[uint32]]::new()
 $null = $pids.Add([uint32]$request.root_pid)
+$rootCreation = @($sysmonRows | Where-Object { [int]$_.event.Id -eq 1 -and (Parse-Pid $_.data.ProcessId) -eq [uint32]$request.root_pid } | Sort-Object { $_.event.TimeCreated }, { $_.event.RecordId } | Select-Object -First 1)
+$rootGuid = if ($rootCreation.Count -gt 0) { [string]$rootCreation[0].data.ProcessGuid } else { '' }
 $changed = $true
 while ($changed) {
     $changed = $false
@@ -288,7 +325,7 @@ while ($changed) {
         $processId = Parse-Pid $row.data.ProcessId
         $guid = [string]$row.data.ProcessGuid
         $parentGuid = [string]$row.data.ParentProcessGuid
-        if ($processId -eq [uint32]$request.root_pid -or $guids.Contains($parentGuid)) {
+        if ((-not [string]::IsNullOrWhiteSpace($rootGuid) -and $guid -eq $rootGuid) -or $guids.Contains($parentGuid)) {
             if (-not [string]::IsNullOrWhiteSpace($guid) -and $guids.Add($guid)) { $changed = $true }
             if ($pids.Add($processId)) { $changed = $true }
         }
@@ -301,17 +338,132 @@ $files = [Collections.Generic.List[object]]::new()
 $registry = [Collections.Generic.List[object]]::new()
 $rawEvents = [Collections.Generic.List[object]]::new()
 $rawEventsTruncated = $false
+$script:rawBytes = 2
+function Add-RawEvent([object]$Value) {
+    $bytes = [Text.Encoding]::UTF8.GetByteCount(($Value | ConvertTo-Json -Compress -Depth 8)) + 1
+    if ($rawEvents.Count -ge $maxRawEvents -or ($script:rawBytes + $bytes) -gt 8MB) {
+        $script:rawEventsTruncated = $true
+        $script:truncated = $true
+        return
+    }
+    $script:rawBytes += $bytes
+    $rawEvents.Add($Value)
+}
+# Index ALL observed process incarnations, including PID reuse outside the target tree.
+$incarnations = @{}
+$terminations = @{}
+foreach ($row in $sysmonRows) {
+    if ([int]$row.event.Id -eq 5) { $terminations[[string]$row.data.ProcessGuid] = $row.event.TimeCreated }
+    if ([int]$row.event.Id -eq 1) {
+        $key = [string](Parse-Pid $row.data.ProcessId)
+        if (-not $incarnations.ContainsKey($key)) { $incarnations[$key] = @() }
+        $incarnations[$key] += $row
+    }
+}
+$wfpCollected = $false
+$wfpHealth = [ordered]@{
+    channel='guest_wfp'; requested=$true; started=[bool]$request.wfp_available; stopped=$false
+    byte_limit=8388608; event_limit=$maxEvents; raw_event_limit=$maxRawEvents
+    captured_events=0; retained_events=0; captured_bytes=0; truncated=$false
+    dropped_events=$null; dropped_packets=$null; loss_detected=$false
+    provider_errors=@(); artifacts=@('extracted-files/telemetry-events.json')
+    warnings=@('Security audit loss counts are unknown; events lost before instrumentation and guest-admin tampering can prevent complete observation.')
+}
+try {
+    Get-WinEvent -ListLog Security -ErrorAction Stop | Out-Null
+    $wfpIds = @(5152,5153,5154,5155,5156,5157,5158,5159,1100,1101,1102,1104,4719)
+    $idFilter = ($wfpIds | ForEach-Object { 'EventID=' + $_ }) -join ' or '
+    $startUtc = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$request.started_unix_ms).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    $endUtc = $eventEndTime.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    $query = "*[System[($idFilter) and EventRecordID > $([uint64]$request.security_record_id) and TimeCreated[@SystemTime >= '$startUtc' and @SystemTime <= '$endUtc']]]"
+    $queryErrors = @()
+    $events = @(Get-WinEvent -LogName Security -FilterXPath $query -Oldest -MaxEvents ($maxEvents + 1) -ErrorAction SilentlyContinue -ErrorVariable queryErrors)
+    foreach ($queryError in $queryErrors) {
+        if ($queryError.FullyQualifiedErrorId -notlike 'NoMatchingEventsFound*') { throw $queryError }
+    }
+    if ($events.Count -gt $maxEvents) { $events = @($events | Select-Object -First $maxEvents); $wfpHealth.truncated=$true }
+    # A reset/overwrite can invalidate the baseline even when the query returned no rows.
+    $latest = Last-Record 'Security'
+    $oldest = @(Get-WinEvent -LogName Security -Oldest -MaxEvents 1 -ErrorAction SilentlyContinue)
+    if ($latest -lt [uint64]$request.security_record_id -or ($oldest.Count -gt 0 -and [uint64]$request.security_record_id -gt 0 -and [uint64]$oldest[0].RecordId -gt ([uint64]$request.security_record_id + 1))) {
+        $wfpHealth.loss_detected=$true
+        $wfpHealth.warnings += 'Security log reset or rollover invalidated the baseline.'
+    }
+    foreach ($event in $events) {
+        $data = Event-Data $event
+        $id = [int]$event.Id
+        if ($id -lt 5152) {
+            $wfpHealth.loss_detected=$true
+            $message = "Security audit interruption or policy change event $id"
+            if ($wfpHealth.provider_errors -notcontains $message) { $wfpHealth.provider_errors += $message }
+        }
+        $processId = Parse-Pid $data.ProcessID
+        $correlation = [ordered]@{ target=$false; confidence='none'; reason='no process identity matched the target tree'; process_guid=$null }
+        $known = @($incarnations[[string]$processId] | Where-Object { $null -ne $_ -and $_.event.TimeCreated -le $event.TimeCreated } | Sort-Object { $_.event.TimeCreated } -Descending)
+        if ($known.Count -gt 0) {
+            $owner = $known[0]
+            $correlation.process_guid = [string]$owner.data.ProcessGuid
+            $terminated = $terminations.ContainsKey([string]$owner.data.ProcessGuid) -and $terminations[[string]$owner.data.ProcessGuid] -lt $event.TimeCreated
+            if ($guids.Contains([string]$owner.data.ProcessGuid) -and -not $terminated) {
+                $correlation.target=$true; $correlation.confidence='medium'; $correlation.reason='PID and event time match a Sysmon target-tree process lifetime; WFP supplies no ProcessGuid'
+            } else { $correlation.reason='PID belongs to another process incarnation or an exited process' }
+        } elseif ($processId -ne 0 -and $processId -eq [uint32]$request.root_pid -and -not $incarnations.ContainsKey([string]$processId)) {
+            $correlation.target=$true; $correlation.confidence='low'; $correlation.reason='root PID within execution window only; process creation unavailable and PID reuse cannot be excluded'
+        }
+        $state = switch ($id) { 5152 {'packet_blocked'} 5153 {'packet_blocked_restrictive_filter'} 5154 {'listen_permitted'} 5155 {'listen_blocked'} 5156 {'connection_permitted'} 5157 {'connection_blocked'} 5158 {'bind_permitted'} 5159 {'bind_blocked'} default {'audit_health'} }
+        $protocol = switch (Parse-Pid $data.Protocol) { 1 {'icmp'} 6 {'tcp'} 17 {'udp'} 58 {'icmpv6'} default {'ip/' + [string]$data.Protocol} }
+        $inbound = [string]$data.Direction -eq '%%14592' -or [string]$data.Direction -eq 'Inbound'
+        $localAddress = [string]$data.SourceAddress; $localPort = Parse-Port $data.SourcePort
+        $remoteAddress = [string]$data.DestAddress; $remotePort = Parse-Port $data.DestPort
+        if ($inbound -and $id -in 5152,5153,5156,5157) {
+            $localAddress=[string]$data.DestAddress; $localPort=Parse-Port $data.DestPort
+            $remoteAddress=[string]$data.SourceAddress; $remotePort=Parse-Port $data.SourcePort
+        }
+        $normalized = [ordered]@{
+            schema_version=1; source='windows_filtering_platform'; event_id=$id; action=$state
+            record_id=[uint64]$event.RecordId; time_utc=$event.TimeCreated.ToUniversalTime().ToString('o')
+            observed_at_ms=Elapsed-Ms $event ([int64]$request.started_unix_ms)
+            pid=$(if ($processId -gt 0) { $processId } else { $null }); image=Bounded ([string]$data.Application)
+            protocol=$protocol; local_address=Bounded $localAddress 256; local_port=$localPort
+            remote_address=Bounded $remoteAddress 256; remote_port=$remotePort
+            correlation=$correlation; data=(Bounded-EventData $data)
+        }
+        $wfpHealth.captured_events++
+        $eventBytes = [Text.Encoding]::UTF8.GetByteCount(($normalized | ConvertTo-Json -Compress -Depth 8)) + 1
+        if ($rawEvents.Count -lt $maxRawEvents -and ($wfpHealth.captured_bytes + $eventBytes) -le $wfpHealth.byte_limit) {
+            $before = $rawEvents.Count
+            Add-RawEvent $normalized
+            if ($rawEvents.Count -gt $before) { $wfpHealth.retained_events++; $wfpHealth.captured_bytes += $eventBytes }
+            else { $wfpHealth.truncated=$true }
+        } else { $wfpHealth.truncated=$true; $rawEventsTruncated=$true }
+        if ($correlation.target -and $id -ge 5152) {
+            $context = [ordered]@{ time_utc=$normalized.time_utc; event_id=$id; action=$state; image=$normalized.image; correlation=$correlation }
+            $network.Add([ordered]@{ event=$context; pid=$processId; protocol=$protocol; local_address=$localAddress; local_port=$localPort; remote_address=$remoteAddress; remote_port=$remotePort; state=$state; observed_at_ms=$normalized.observed_at_ms })
+        }
+    }
+    $wfpCollected = [bool]$request.wfp_available
+    $wfpHealth.stopped=$true
+} catch { $wfpHealth.provider_errors += "WFP audit query failed: $($_.Exception.Message) at $($_.ScriptStackTrace)" }
+if (-not $wfpHealth.started) { $wfpHealth.warnings += 'WFP auditing unavailable or not confirmed before target launch.' }
+if ($wfpHealth.truncated) { $truncated=$true; $warnings.Add('WFP event or byte limit reached; network attempt coverage is incomplete') }
+$warnings.AddRange([string[]]$wfpHealth.provider_errors)
+$warnings.AddRange([string[]]$wfpHealth.warnings)
+
 foreach ($row in $sysmonRows) {
     $id = [int]$row.event.Id
     $data = $row.data
     $guid = [string]$data.ProcessGuid
+    if ($id -eq 8 -or $id -eq 10) { $guid = [string]$data.SourceProcessGUID }
     if (-not $guids.Contains($guid)) { continue }
     if ($rawEvents.Count -lt $maxRawEvents) {
-        $rawEvents.Add([ordered]@{
+        Add-RawEvent ([ordered]@{
+            schema_version = 1
             source = 'sysmon'
             event_id = $id
             record_id = [uint64]$row.event.RecordId
             time_utc = $row.event.TimeCreated.ToUniversalTime().ToString('o')
+            observed_at_ms = Elapsed-Ms $row.event ([int64]$request.started_unix_ms)
+            started_unix_ms = [uint64]$request.started_unix_ms
             data = (Bounded-EventData $data)
         })
     } else {
@@ -414,45 +566,6 @@ foreach ($row in $sysmonRows) {
     }
 }
 
-$wfpCollected = $false
-try {
-    Get-WinEvent -ListLog Security -ErrorAction Stop | Out-Null
-    $wfpIds = @(5152,5154,5155,5156,5157,5158,5159)
-    $events = @(Get-WinEvent -FilterHashtable @{ LogName='Security'; Id=$wfpIds; StartTime=$eventStartTime } -Oldest -MaxEvents ($maxEvents + 1) -ErrorAction SilentlyContinue |
-        Where-Object { [uint64]$_.RecordId -gt [uint64]$request.security_record_id })
-    if ($events.Count -gt $maxEvents) { $events = @($events | Select-Object -First $maxEvents); $truncated = $true; $warnings.Add("WFP event limit reached at $maxEvents records") }
-    foreach ($event in $events) {
-        $data = Event-Data $event
-        $processId = Parse-Pid $data.ProcessID
-        if (-not $pids.Contains($processId)) { continue }
-        if ($rawEvents.Count -lt $maxRawEvents) {
-            $rawEvents.Add([ordered]@{
-                source = 'windows_filtering_platform'
-                event_id = [int]$event.Id
-                record_id = [uint64]$event.RecordId
-                time_utc = $event.TimeCreated.ToUniversalTime().ToString('o')
-                data = (Bounded-EventData $data)
-            })
-        } else {
-            $rawEventsTruncated = $true
-            $truncated = $true
-        }
-        $state = switch ([int]$event.Id) { 5152 {'packet_blocked'} 5154 {'listen_permitted'} 5155 {'listen_blocked'} 5156 {'connection_permitted'} 5157 {'connection_blocked'} 5158 {'bind_permitted'} 5159 {'bind_blocked'} }
-        $protocol = switch (Parse-Pid $data.Protocol) { 6 {'tcp'} 17 {'udp'} default {'ip/' + [string]$data.Protocol} }
-        $network.Add([ordered]@{
-            pid = $processId
-            protocol = $protocol
-            local_address = Bounded ([string]$data.SourceAddress) 256
-            local_port = Parse-Port $data.SourcePort
-            remote_address = Bounded ([string]$data.DestAddress) 512
-            remote_port = Parse-Port $data.DestPort
-            state = $state
-            observed_at_ms = Elapsed-Ms $event ([int64]$request.started_unix_ms)
-        })
-    }
-    $wfpCollected = $true
-} catch { $warnings.Add("WFP audit query failed: $($_.Exception.Message)") }
-
 $defenderCollected = $false
 try {
     Get-WinEvent -ListLog $defenderLog -ErrorAction Stop | Out-Null
@@ -468,7 +581,7 @@ try {
     foreach ($event in $events) {
         $data = Event-Data $event
         if ($rawEvents.Count -lt $maxRawEvents) {
-            $rawEvents.Add([ordered]@{
+            Add-RawEvent ([ordered]@{
                 source = 'windows_defender'
                 event_id = [int]$event.Id
                 record_id = [uint64]$event.RecordId
@@ -590,6 +703,7 @@ Write-Result ([ordered]@{
     registry_observations = @($registry)
     raw_events = @($rawEvents)
     sysmon_collected = [bool]$request.sysmon_available
+    capture_health = @($wfpHealth)
     wfp_collected = $wfpCollected
     defender_collected = $defenderCollected
     truncated = $truncated

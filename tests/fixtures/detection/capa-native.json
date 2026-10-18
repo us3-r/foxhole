@@ -1,0 +1,91 @@
+{
+  "meta": {
+    "analysis": {
+      "arch": "i386",
+      "base_address": {
+        "type": "absolute",
+        "value": 4194304
+      },
+      "extractor": "VivisectFeatureExtractor",
+      "feature_counts": {
+        "file": 14,
+        "functions": [
+          {
+            "address": {
+              "type": "absolute",
+              "value": 4198400
+            },
+            "count": 11
+          }
+        ]
+      },
+      "format": "pe",
+      "layout": {
+        "functions": []
+      },
+      "library_functions": [],
+      "os": "windows",
+      "rules": [
+        "foxhole-test"
+      ]
+    },
+    "argv": null,
+    "flavor": "static",
+    "sample": {
+      "md5": "710dd5692cfb9d4475b5844c958b5865",
+      "path": "harmless.exe",
+      "sha1": "d7e5365f39defce6cfd0135835c5ea302f556c21",
+      "sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+    },
+    "timestamp": "2020-01-01T00:00:00",
+    "version": "9.2.1"
+  },
+  "rules": {
+    "import harmless exit function": {
+      "matches": [
+        [
+          {
+            "type": "no address"
+          },
+          {
+            "captures": {},
+            "children": [],
+            "locations": [
+              {
+                "type": "absolute",
+                "value": 4198784
+              }
+            ],
+            "node": {
+              "feature": {
+                "import_": "kernel32.ExitProcess",
+                "type": "import"
+              },
+              "type": "feature"
+            },
+            "success": true
+          }
+        ]
+      ],
+      "meta": {
+        "attack": [],
+        "authors": [
+          "Foxhole"
+        ],
+        "description": "",
+        "examples": [],
+        "is_subscope_rule": false,
+        "lib": false,
+        "maec": {},
+        "mbc": [],
+        "name": "import harmless exit function",
+        "namespace": "foxhole/test",
+        "references": [],
+        "scopes": {
+          "static": "file"
+        }
+      },
+      "source": "rule:\n  meta:\n    name: import harmless exit function\n    namespace: foxhole/test\n    authors: [Foxhole]\n    scopes:\n      static: file\n      dynamic: unsupported\n  features:\n    - import: kernel32.ExitProcess\n"
+    }
+  }
+}

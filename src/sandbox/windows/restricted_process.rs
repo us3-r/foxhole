@@ -908,6 +908,7 @@ impl SandboxBackend for RestrictedProcessBackend {
 
         let result = match prepared {
             PreparedRun::DryRun => Ok(SandboxRunResult {
+                capture_health: Vec::new(),
                 backend: "restricted_process".to_string(),
                 network_policy: request.network_policy.name().to_string(),
                 integrity_level: if request.mitigation_profile == MitigationProfile::Maximum {
@@ -1298,6 +1299,7 @@ fn run_app_container_process(
     }
 
     Ok(SandboxRunResult {
+        capture_health: Vec::new(),
         backend: "restricted_process".to_string(),
         network_policy: request.network_policy.name().to_string(),
         integrity_level: if request.mitigation_profile == MitigationProfile::Maximum {
@@ -1984,9 +1986,8 @@ fn verify_final_handle_path(file: &File, expected: &Path) -> Result<()> {
         buffer.resize(length.saturating_add(1), 0);
     };
 
-    let actual = win32_path_string(&actual);
-    let expected = win32_path_string(expected);
-    if !actual.eq_ignore_ascii_case(&expected) {
+    if !crate::artifact::windows_paths_equal(&actual, expected) {
+        let actual = win32_path_string(&actual);
         return Err(Error::new(
             E_ACCESSDENIED,
             format!(
@@ -3110,6 +3111,7 @@ fn monitor_activity(root_pid: u32, stop: Arc<AtomicBool>, started_at: Instant) -
                         ));
                     }
                     result.network_connections.push(NetworkObservation {
+                        event: None,
                         pid: connection.pid,
                         protocol: connection.protocol.to_string(),
                         local_address: connection.local_addr,
@@ -3536,6 +3538,19 @@ fn tcp_state_name(state: u32) -> &'static str {
 mod tests {
     use super::*;
     use crate::sandbox::backend::{MappedPath, MappedPathAccess, NetworkPolicy};
+    use windows::Win32::UI::Shell::IsUserAnAdmin;
+
+    fn require_administrator(test_name: &str) -> bool {
+        // SAFETY: IsUserAnAdmin takes no pointers and only queries the current process token.
+        if unsafe { IsUserAnAdmin().as_bool() } {
+            return true;
+        }
+
+        eprintln!(
+            "skipping {test_name}: live restricted-process tests require administrator rights"
+        );
+        false
+    }
 
     fn minimal_pe(subsystem: u16) -> Vec<u8> {
         let mut image = vec![0u8; 512];
@@ -3983,6 +3998,10 @@ mod tests {
 
     #[test]
     fn live_non_enforcing_network_modes_launch_a_restricted_process() {
+        if !require_administrator("live_non_enforcing_network_modes_launch_a_restricted_process") {
+            return;
+        }
+
         for (policy, profile) in [
             (NetworkPolicy::CaptureOnly, MitigationProfile::Compatible),
             (NetworkPolicy::AllowInternet, MitigationProfile::Strict),
@@ -4003,6 +4022,10 @@ mod tests {
 
     #[test]
     fn enforcing_network_modes_either_run_or_fail_closed_at_wfp() {
+        if !require_administrator("enforcing_network_modes_either_run_or_fail_closed_at_wfp") {
+            return;
+        }
+
         for policy in [
             NetworkPolicy::DenyAll,
             NetworkPolicy::AllowList(vec!["127.0.0.1/32".parse().unwrap()]),
@@ -4150,6 +4173,10 @@ mod tests {
 
     #[test]
     fn live_batch_launch_and_timeout_paths_are_covered() {
+        if !require_administrator("live_batch_launch_and_timeout_paths_are_covered") {
+            return;
+        }
+
         let root = std::env::temp_dir().join(format!(
             "foxhole-live-batch-{}-{}",
             std::process::id(),
@@ -4185,6 +4212,10 @@ mod tests {
 
     #[test]
     fn live_launch_stages_read_only_and_read_write_mappings() {
+        if !require_administrator("live_launch_stages_read_only_and_read_write_mappings") {
+            return;
+        }
+
         let root = std::env::temp_dir().join(format!(
             "foxhole-live-mapping-{}-{}",
             std::process::id(),
@@ -4541,6 +4572,10 @@ mod tests {
 
     #[test]
     fn prepared_live_request_mismatch_and_armed_guard_fail_safely() {
+        if !require_administrator("prepared_live_request_mismatch_and_armed_guard_fail_safely") {
+            return;
+        }
+
         let mut child = std::process::Command::new("cmd.exe")
             .args(["/D", "/C", "exit 0"])
             .spawn()

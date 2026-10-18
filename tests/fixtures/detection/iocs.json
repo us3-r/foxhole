@@ -1,0 +1,499 @@
+{
+  "schema_version": "1.0",
+  "run_id": "fixture",
+  "normalized_input_sha256": "0ac98da58ee518583f6bf9279ab56a450df918712e37c3a2c1f0025b8945653c",
+  "counts_by_type": {
+    "domain": 1,
+    "ipv4": 2,
+    "sha256": 5,
+    "url": 3,
+    "user_agent": 1
+  },
+  "indicators": [
+    {
+      "details": {
+        "confidence": 80,
+        "source_categories": [
+          "packet"
+        ],
+        "file_sha256": [
+          "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64"
+        ],
+        "evidence_ids": [
+          "artifact:capture",
+          "artifact:network"
+        ],
+        "extraction_methods": [
+          "offline_packet_metadata"
+        ],
+        "validation_status": "syntax_validated",
+        "related_findings": [],
+        "relationships": [
+          "dns_answer:example.com:1.1.1.1:packet:1"
+        ],
+        "offsets": [
+          1,
+          2,
+          3
+        ]
+      },
+      "type": "domain",
+      "value": "example.com",
+      "normalized_value": "example.com",
+      "first_seen_ms": 1000,
+      "last_seen_ms": 1002,
+      "contextual": true,
+      "likely_benign": true,
+      "sources": [
+        {
+          "kind": "packet",
+          "artifact": "",
+          "evidence_id": "artifact:capture"
+        },
+        {
+          "kind": "packet",
+          "artifact": "",
+          "evidence_id": "artifact:network"
+        }
+      ]
+    },
+    {
+      "details": {
+        "confidence": 80,
+        "source_categories": [
+          "packet"
+        ],
+        "file_sha256": [
+          "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64"
+        ],
+        "evidence_ids": [
+          "artifact:capture",
+          "artifact:network"
+        ],
+        "extraction_methods": [
+          "offline_packet_metadata"
+        ],
+        "validation_status": "syntax_validated",
+        "related_findings": [],
+        "relationships": [
+          "dns_answer:example.com:1.1.1.1:packet:1"
+        ],
+        "offsets": [
+          1,
+          2,
+          3
+        ]
+      },
+      "type": "ipv4",
+      "value": "1.1.1.1",
+      "normalized_value": "1.1.1.1",
+      "first_seen_ms": 1000,
+      "last_seen_ms": 1002,
+      "contextual": false,
+      "likely_benign": false,
+      "sources": [
+        {
+          "kind": "packet",
+          "artifact": "",
+          "evidence_id": "artifact:capture"
+        },
+        {
+          "kind": "packet",
+          "artifact": "",
+          "evidence_id": "artifact:network"
+        }
+      ]
+    },
+    {
+      "details": {
+        "confidence": 80,
+        "source_categories": [
+          "packet"
+        ],
+        "file_sha256": [
+          "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64"
+        ],
+        "evidence_ids": [
+          "artifact:capture",
+          "artifact:network"
+        ],
+        "extraction_methods": [
+          "offline_packet_metadata"
+        ],
+        "validation_status": "syntax_validated",
+        "related_findings": [],
+        "relationships": [
+          "dns_answer:example.com:1.1.1.1:packet:1"
+        ],
+        "offsets": [
+          1,
+          2,
+          3
+        ]
+      },
+      "type": "ipv4",
+      "value": "10.0.0.2",
+      "normalized_value": "10.0.0.2",
+      "first_seen_ms": 1000,
+      "last_seen_ms": 1002,
+      "contextual": true,
+      "likely_benign": true,
+      "sources": [
+        {
+          "kind": "packet",
+          "artifact": "",
+          "evidence_id": "artifact:capture"
+        },
+        {
+          "kind": "packet",
+          "artifact": "",
+          "evidence_id": "artifact:network"
+        }
+      ]
+    },
+    {
+      "details": {
+        "confidence": 75,
+        "source_categories": [
+          "dynamic"
+        ],
+        "file_sha256": [],
+        "evidence_ids": [
+          "artifact:yara"
+        ],
+        "extraction_methods": [
+          "normalized_telemetry"
+        ],
+        "validation_status": "validated_telemetry_observable",
+        "related_findings": [],
+        "relationships": [],
+        "offsets": []
+      },
+      "type": "sha256",
+      "value": "0052351de9dd5d30c3889c6185243f8aa28d918c72e833d0252407ae25a48380",
+      "normalized_value": "0052351de9dd5d30c3889c6185243f8aa28d918c72e833d0252407ae25a48380",
+      "first_seen_ms": 0,
+      "last_seen_ms": 0,
+      "contextual": false,
+      "likely_benign": false,
+      "sources": [
+        {
+          "kind": "validated_artifact",
+          "artifact": "detection/yara.json",
+          "evidence_id": "artifact:yara"
+        }
+      ]
+    },
+    {
+      "details": {
+        "confidence": 75,
+        "source_categories": [
+          "dynamic"
+        ],
+        "file_sha256": [],
+        "evidence_ids": [
+          "artifact:capa"
+        ],
+        "extraction_methods": [
+          "normalized_telemetry"
+        ],
+        "validation_status": "validated_telemetry_observable",
+        "related_findings": [],
+        "relationships": [],
+        "offsets": []
+      },
+      "type": "sha256",
+      "value": "121a0296fb9efd2ce158e3720dbdf79c521945d3703a1056cc198cea187c1335",
+      "normalized_value": "121a0296fb9efd2ce158e3720dbdf79c521945d3703a1056cc198cea187c1335",
+      "first_seen_ms": 0,
+      "last_seen_ms": 0,
+      "contextual": false,
+      "likely_benign": false,
+      "sources": [
+        {
+          "kind": "validated_artifact",
+          "artifact": "detection/capa.json",
+          "evidence_id": "artifact:capa"
+        }
+      ]
+    },
+    {
+      "details": {
+        "confidence": 75,
+        "source_categories": [
+          "dynamic"
+        ],
+        "file_sha256": [],
+        "evidence_ids": [
+          "artifact:capture"
+        ],
+        "extraction_methods": [
+          "normalized_telemetry"
+        ],
+        "validation_status": "validated_telemetry_observable",
+        "related_findings": [],
+        "relationships": [],
+        "offsets": []
+      },
+      "type": "sha256",
+      "value": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+      "normalized_value": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+      "first_seen_ms": 0,
+      "last_seen_ms": 0,
+      "contextual": false,
+      "likely_benign": false,
+      "sources": [
+        {
+          "kind": "validated_artifact",
+          "artifact": "extracted-files/capture.pcapng",
+          "evidence_id": "artifact:capture"
+        }
+      ]
+    },
+    {
+      "details": {
+        "confidence": 75,
+        "source_categories": [
+          "dynamic"
+        ],
+        "file_sha256": [],
+        "evidence_ids": [
+          "artifact:pe"
+        ],
+        "extraction_methods": [
+          "normalized_telemetry"
+        ],
+        "validation_status": "validated_telemetry_observable",
+        "related_findings": [],
+        "relationships": [],
+        "offsets": []
+      },
+      "type": "sha256",
+      "value": "86627d9ad2749b58c1a269ec6cb97625c06f71a9c55ac911fb8cbe86d6f194a8",
+      "normalized_value": "86627d9ad2749b58c1a269ec6cb97625c06f71a9c55ac911fb8cbe86d6f194a8",
+      "first_seen_ms": 0,
+      "last_seen_ms": 0,
+      "contextual": false,
+      "likely_benign": false,
+      "sources": [
+        {
+          "kind": "validated_artifact",
+          "artifact": "detection/pe.json",
+          "evidence_id": "artifact:pe"
+        }
+      ]
+    },
+    {
+      "details": {
+        "confidence": 75,
+        "source_categories": [
+          "dynamic"
+        ],
+        "file_sha256": [],
+        "evidence_ids": [
+          "artifact:network"
+        ],
+        "extraction_methods": [
+          "normalized_telemetry"
+        ],
+        "validation_status": "validated_telemetry_observable",
+        "related_findings": [],
+        "relationships": [],
+        "offsets": []
+      },
+      "type": "sha256",
+      "value": "e834a416d403515cfe22a3ea39aedf329da500e56cdf9e99255b8812775c4085",
+      "normalized_value": "e834a416d403515cfe22a3ea39aedf329da500e56cdf9e99255b8812775c4085",
+      "first_seen_ms": 0,
+      "last_seen_ms": 0,
+      "contextual": false,
+      "likely_benign": false,
+      "sources": [
+        {
+          "kind": "validated_artifact",
+          "artifact": "detection/network.json",
+          "evidence_id": "artifact:network"
+        }
+      ]
+    },
+    {
+      "details": {
+        "confidence": 80,
+        "source_categories": [
+          "packet"
+        ],
+        "file_sha256": [
+          "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64"
+        ],
+        "evidence_ids": [
+          "artifact:capture",
+          "artifact:network"
+        ],
+        "extraction_methods": [
+          "offline_packet_metadata"
+        ],
+        "validation_status": "syntax_validated",
+        "related_findings": [],
+        "relationships": [],
+        "offsets": [
+          2
+        ]
+      },
+      "type": "url",
+      "value": "http://example.com/fixture",
+      "normalized_value": "http://example.com/fixture",
+      "first_seen_ms": 1001,
+      "last_seen_ms": 1001,
+      "contextual": true,
+      "likely_benign": true,
+      "sources": [
+        {
+          "kind": "packet",
+          "artifact": "",
+          "evidence_id": "artifact:capture"
+        },
+        {
+          "kind": "packet",
+          "artifact": "",
+          "evidence_id": "artifact:network"
+        }
+      ]
+    },
+    {
+      "details": {
+        "confidence": 80,
+        "source_categories": [
+          "static"
+        ],
+        "file_sha256": [
+          "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+        ],
+        "evidence_ids": [
+          "artifact:pe",
+          "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+        ],
+        "extraction_methods": [
+          "ascii"
+        ],
+        "validation_status": "syntax_validated",
+        "related_findings": [],
+        "relationships": [],
+        "offsets": [
+          1046
+        ]
+      },
+      "type": "url",
+      "value": "https://example.com/fixture",
+      "normalized_value": "https://example.com/fixture",
+      "first_seen_ms": 0,
+      "last_seen_ms": 0,
+      "contextual": true,
+      "likely_benign": true,
+      "sources": [
+        {
+          "kind": "static",
+          "artifact": "",
+          "evidence_id": "artifact:pe"
+        },
+        {
+          "kind": "static",
+          "artifact": "",
+          "evidence_id": "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+        }
+      ]
+    },
+    {
+      "details": {
+        "confidence": 80,
+        "source_categories": [
+          "static"
+        ],
+        "file_sha256": [
+          "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+        ],
+        "evidence_ids": [
+          "artifact:pe",
+          "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+        ],
+        "extraction_methods": [
+          "base64"
+        ],
+        "validation_status": "syntax_validated",
+        "related_findings": [],
+        "relationships": [],
+        "offsets": [
+          1074
+        ]
+      },
+      "type": "url",
+      "value": "https://example.org/",
+      "normalized_value": "https://example.org/",
+      "first_seen_ms": 0,
+      "last_seen_ms": 0,
+      "contextual": true,
+      "likely_benign": true,
+      "sources": [
+        {
+          "kind": "static",
+          "artifact": "",
+          "evidence_id": "artifact:pe"
+        },
+        {
+          "kind": "static",
+          "artifact": "",
+          "evidence_id": "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+        }
+      ]
+    },
+    {
+      "details": {
+        "confidence": 80,
+        "source_categories": [
+          "packet"
+        ],
+        "file_sha256": [
+          "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64"
+        ],
+        "evidence_ids": [
+          "artifact:capture",
+          "artifact:network"
+        ],
+        "extraction_methods": [
+          "offline_packet_metadata"
+        ],
+        "validation_status": "syntax_validated",
+        "related_findings": [],
+        "relationships": [],
+        "offsets": [
+          2
+        ]
+      },
+      "type": "user_agent",
+      "value": "Foxhole/1.0",
+      "normalized_value": "Foxhole/1.0",
+      "first_seen_ms": 1001,
+      "last_seen_ms": 1001,
+      "contextual": false,
+      "likely_benign": false,
+      "sources": [
+        {
+          "kind": "packet",
+          "artifact": "",
+          "evidence_id": "artifact:capture"
+        },
+        {
+          "kind": "packet",
+          "artifact": "",
+          "evidence_id": "artifact:network"
+        }
+      ]
+    }
+  ],
+  "extraction_warnings": [
+    {
+      "code": "target_hash_unavailable",
+      "source": "host_report.target",
+      "message": "the archived run does not expose the original target hash; no target hash IOC was fabricated"
+    }
+  ]
+}

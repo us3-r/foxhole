@@ -1,0 +1,1535 @@
+{
+  "iocs": {
+    "counts_by_type": {
+      "domain": 1,
+      "ipv4": 2,
+      "sha256": 5,
+      "url": 3,
+      "user_agent": 1
+    },
+    "extraction_warnings": [
+      {
+        "code": "target_hash_unavailable",
+        "message": "the archived run does not expose the original target hash; no target hash IOC was fabricated",
+        "source": "host_report.target"
+      }
+    ],
+    "indicators": [
+      {
+        "contextual": true,
+        "details": {
+          "confidence": 80,
+          "evidence_ids": [
+            "artifact:capture",
+            "artifact:network"
+          ],
+          "extraction_methods": [
+            "offline_packet_metadata"
+          ],
+          "file_sha256": [
+            "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64"
+          ],
+          "offsets": [
+            1,
+            2,
+            3
+          ],
+          "related_findings": [],
+          "relationships": [
+            "dns_answer:example.com:1.1.1.1:packet:1"
+          ],
+          "source_categories": [
+            "packet"
+          ],
+          "validation_status": "syntax_validated"
+        },
+        "first_seen_ms": 1000,
+        "last_seen_ms": 1002,
+        "likely_benign": true,
+        "normalized_value": "example.com",
+        "sources": [
+          {
+            "artifact": "",
+            "evidence_id": "artifact:capture",
+            "kind": "packet"
+          },
+          {
+            "artifact": "",
+            "evidence_id": "artifact:network",
+            "kind": "packet"
+          }
+        ],
+        "type": "domain",
+        "value": "example.com"
+      },
+      {
+        "contextual": false,
+        "details": {
+          "confidence": 80,
+          "evidence_ids": [
+            "artifact:capture",
+            "artifact:network"
+          ],
+          "extraction_methods": [
+            "offline_packet_metadata"
+          ],
+          "file_sha256": [
+            "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64"
+          ],
+          "offsets": [
+            1,
+            2,
+            3
+          ],
+          "related_findings": [],
+          "relationships": [
+            "dns_answer:example.com:1.1.1.1:packet:1"
+          ],
+          "source_categories": [
+            "packet"
+          ],
+          "validation_status": "syntax_validated"
+        },
+        "first_seen_ms": 1000,
+        "last_seen_ms": 1002,
+        "likely_benign": false,
+        "normalized_value": "1.1.1.1",
+        "sources": [
+          {
+            "artifact": "",
+            "evidence_id": "artifact:capture",
+            "kind": "packet"
+          },
+          {
+            "artifact": "",
+            "evidence_id": "artifact:network",
+            "kind": "packet"
+          }
+        ],
+        "type": "ipv4",
+        "value": "1.1.1.1"
+      },
+      {
+        "contextual": true,
+        "details": {
+          "confidence": 80,
+          "evidence_ids": [
+            "artifact:capture",
+            "artifact:network"
+          ],
+          "extraction_methods": [
+            "offline_packet_metadata"
+          ],
+          "file_sha256": [
+            "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64"
+          ],
+          "offsets": [
+            1,
+            2,
+            3
+          ],
+          "related_findings": [],
+          "relationships": [
+            "dns_answer:example.com:1.1.1.1:packet:1"
+          ],
+          "source_categories": [
+            "packet"
+          ],
+          "validation_status": "syntax_validated"
+        },
+        "first_seen_ms": 1000,
+        "last_seen_ms": 1002,
+        "likely_benign": true,
+        "normalized_value": "10.0.0.2",
+        "sources": [
+          {
+            "artifact": "",
+            "evidence_id": "artifact:capture",
+            "kind": "packet"
+          },
+          {
+            "artifact": "",
+            "evidence_id": "artifact:network",
+            "kind": "packet"
+          }
+        ],
+        "type": "ipv4",
+        "value": "10.0.0.2"
+      },
+      {
+        "contextual": false,
+        "details": {
+          "confidence": 75,
+          "evidence_ids": [
+            "artifact:yara"
+          ],
+          "extraction_methods": [
+            "normalized_telemetry"
+          ],
+          "file_sha256": [],
+          "offsets": [],
+          "related_findings": [],
+          "relationships": [],
+          "source_categories": [
+            "dynamic"
+          ],
+          "validation_status": "validated_telemetry_observable"
+        },
+        "first_seen_ms": 0,
+        "last_seen_ms": 0,
+        "likely_benign": false,
+        "normalized_value": "0052351de9dd5d30c3889c6185243f8aa28d918c72e833d0252407ae25a48380",
+        "sources": [
+          {
+            "artifact": "detection/yara.json",
+            "evidence_id": "artifact:yara",
+            "kind": "validated_artifact"
+          }
+        ],
+        "type": "sha256",
+        "value": "0052351de9dd5d30c3889c6185243f8aa28d918c72e833d0252407ae25a48380"
+      },
+      {
+        "contextual": false,
+        "details": {
+          "confidence": 75,
+          "evidence_ids": [
+            "artifact:capa"
+          ],
+          "extraction_methods": [
+            "normalized_telemetry"
+          ],
+          "file_sha256": [],
+          "offsets": [],
+          "related_findings": [],
+          "relationships": [],
+          "source_categories": [
+            "dynamic"
+          ],
+          "validation_status": "validated_telemetry_observable"
+        },
+        "first_seen_ms": 0,
+        "last_seen_ms": 0,
+        "likely_benign": false,
+        "normalized_value": "121a0296fb9efd2ce158e3720dbdf79c521945d3703a1056cc198cea187c1335",
+        "sources": [
+          {
+            "artifact": "detection/capa.json",
+            "evidence_id": "artifact:capa",
+            "kind": "validated_artifact"
+          }
+        ],
+        "type": "sha256",
+        "value": "121a0296fb9efd2ce158e3720dbdf79c521945d3703a1056cc198cea187c1335"
+      },
+      {
+        "contextual": false,
+        "details": {
+          "confidence": 75,
+          "evidence_ids": [
+            "artifact:capture"
+          ],
+          "extraction_methods": [
+            "normalized_telemetry"
+          ],
+          "file_sha256": [],
+          "offsets": [],
+          "related_findings": [],
+          "relationships": [],
+          "source_categories": [
+            "dynamic"
+          ],
+          "validation_status": "validated_telemetry_observable"
+        },
+        "first_seen_ms": 0,
+        "last_seen_ms": 0,
+        "likely_benign": false,
+        "normalized_value": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+        "sources": [
+          {
+            "artifact": "extracted-files/capture.pcapng",
+            "evidence_id": "artifact:capture",
+            "kind": "validated_artifact"
+          }
+        ],
+        "type": "sha256",
+        "value": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64"
+      },
+      {
+        "contextual": false,
+        "details": {
+          "confidence": 75,
+          "evidence_ids": [
+            "artifact:pe"
+          ],
+          "extraction_methods": [
+            "normalized_telemetry"
+          ],
+          "file_sha256": [],
+          "offsets": [],
+          "related_findings": [],
+          "relationships": [],
+          "source_categories": [
+            "dynamic"
+          ],
+          "validation_status": "validated_telemetry_observable"
+        },
+        "first_seen_ms": 0,
+        "last_seen_ms": 0,
+        "likely_benign": false,
+        "normalized_value": "86627d9ad2749b58c1a269ec6cb97625c06f71a9c55ac911fb8cbe86d6f194a8",
+        "sources": [
+          {
+            "artifact": "detection/pe.json",
+            "evidence_id": "artifact:pe",
+            "kind": "validated_artifact"
+          }
+        ],
+        "type": "sha256",
+        "value": "86627d9ad2749b58c1a269ec6cb97625c06f71a9c55ac911fb8cbe86d6f194a8"
+      },
+      {
+        "contextual": false,
+        "details": {
+          "confidence": 75,
+          "evidence_ids": [
+            "artifact:network"
+          ],
+          "extraction_methods": [
+            "normalized_telemetry"
+          ],
+          "file_sha256": [],
+          "offsets": [],
+          "related_findings": [],
+          "relationships": [],
+          "source_categories": [
+            "dynamic"
+          ],
+          "validation_status": "validated_telemetry_observable"
+        },
+        "first_seen_ms": 0,
+        "last_seen_ms": 0,
+        "likely_benign": false,
+        "normalized_value": "e834a416d403515cfe22a3ea39aedf329da500e56cdf9e99255b8812775c4085",
+        "sources": [
+          {
+            "artifact": "detection/network.json",
+            "evidence_id": "artifact:network",
+            "kind": "validated_artifact"
+          }
+        ],
+        "type": "sha256",
+        "value": "e834a416d403515cfe22a3ea39aedf329da500e56cdf9e99255b8812775c4085"
+      },
+      {
+        "contextual": true,
+        "details": {
+          "confidence": 80,
+          "evidence_ids": [
+            "artifact:capture",
+            "artifact:network"
+          ],
+          "extraction_methods": [
+            "offline_packet_metadata"
+          ],
+          "file_sha256": [
+            "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64"
+          ],
+          "offsets": [
+            2
+          ],
+          "related_findings": [],
+          "relationships": [],
+          "source_categories": [
+            "packet"
+          ],
+          "validation_status": "syntax_validated"
+        },
+        "first_seen_ms": 1001,
+        "last_seen_ms": 1001,
+        "likely_benign": true,
+        "normalized_value": "http://example.com/fixture",
+        "sources": [
+          {
+            "artifact": "",
+            "evidence_id": "artifact:capture",
+            "kind": "packet"
+          },
+          {
+            "artifact": "",
+            "evidence_id": "artifact:network",
+            "kind": "packet"
+          }
+        ],
+        "type": "url",
+        "value": "http://example.com/fixture"
+      },
+      {
+        "contextual": true,
+        "details": {
+          "confidence": 80,
+          "evidence_ids": [
+            "artifact:pe",
+            "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+          ],
+          "extraction_methods": [
+            "ascii"
+          ],
+          "file_sha256": [
+            "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+          ],
+          "offsets": [
+            1046
+          ],
+          "related_findings": [],
+          "relationships": [],
+          "source_categories": [
+            "static"
+          ],
+          "validation_status": "syntax_validated"
+        },
+        "first_seen_ms": 0,
+        "last_seen_ms": 0,
+        "likely_benign": true,
+        "normalized_value": "https://example.com/fixture",
+        "sources": [
+          {
+            "artifact": "",
+            "evidence_id": "artifact:pe",
+            "kind": "static"
+          },
+          {
+            "artifact": "",
+            "evidence_id": "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+            "kind": "static"
+          }
+        ],
+        "type": "url",
+        "value": "https://example.com/fixture"
+      },
+      {
+        "contextual": true,
+        "details": {
+          "confidence": 80,
+          "evidence_ids": [
+            "artifact:pe",
+            "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+          ],
+          "extraction_methods": [
+            "base64"
+          ],
+          "file_sha256": [
+            "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+          ],
+          "offsets": [
+            1074
+          ],
+          "related_findings": [],
+          "relationships": [],
+          "source_categories": [
+            "static"
+          ],
+          "validation_status": "syntax_validated"
+        },
+        "first_seen_ms": 0,
+        "last_seen_ms": 0,
+        "likely_benign": true,
+        "normalized_value": "https://example.org/",
+        "sources": [
+          {
+            "artifact": "",
+            "evidence_id": "artifact:pe",
+            "kind": "static"
+          },
+          {
+            "artifact": "",
+            "evidence_id": "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+            "kind": "static"
+          }
+        ],
+        "type": "url",
+        "value": "https://example.org/"
+      },
+      {
+        "contextual": false,
+        "details": {
+          "confidence": 80,
+          "evidence_ids": [
+            "artifact:capture",
+            "artifact:network"
+          ],
+          "extraction_methods": [
+            "offline_packet_metadata"
+          ],
+          "file_sha256": [
+            "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64"
+          ],
+          "offsets": [
+            2
+          ],
+          "related_findings": [],
+          "relationships": [],
+          "source_categories": [
+            "packet"
+          ],
+          "validation_status": "syntax_validated"
+        },
+        "first_seen_ms": 1001,
+        "last_seen_ms": 1001,
+        "likely_benign": false,
+        "normalized_value": "Foxhole/1.0",
+        "sources": [
+          {
+            "artifact": "",
+            "evidence_id": "artifact:capture",
+            "kind": "packet"
+          },
+          {
+            "artifact": "",
+            "evidence_id": "artifact:network",
+            "kind": "packet"
+          }
+        ],
+        "type": "user_agent",
+        "value": "Foxhole/1.0"
+      }
+    ],
+    "normalized_input_sha256": "0ac98da58ee518583f6bf9279ab56a450df918712e37c3a2c1f0025b8945653c",
+    "run_id": "fixture",
+    "schema_version": "1.0"
+  },
+  "normalized": {
+    "artifacts": [
+      {
+        "evidence_id": "artifact:capture",
+        "exists": true,
+        "hash_verified": true,
+        "kind": "packet_capture_pcapng",
+        "raw": {},
+        "relative_path": "extracted-files/capture.pcapng",
+        "sha256": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+        "size_bytes": 484,
+        "source": "fixture"
+      },
+      {
+        "evidence_id": "artifact:yara",
+        "exists": true,
+        "hash_verified": true,
+        "kind": "detection_yara",
+        "raw": {},
+        "relative_path": "detection/yara.json",
+        "sha256": "0052351de9dd5d30c3889c6185243f8aa28d918c72e833d0252407ae25a48380",
+        "size_bytes": 1178,
+        "source": "fixture"
+      },
+      {
+        "evidence_id": "artifact:pe",
+        "exists": true,
+        "hash_verified": true,
+        "kind": "detection_pe",
+        "raw": {},
+        "relative_path": "detection/pe.json",
+        "sha256": "86627d9ad2749b58c1a269ec6cb97625c06f71a9c55ac911fb8cbe86d6f194a8",
+        "size_bytes": 1806,
+        "source": "fixture"
+      },
+      {
+        "evidence_id": "artifact:capa",
+        "exists": true,
+        "hash_verified": true,
+        "kind": "detection_capa",
+        "raw": {},
+        "relative_path": "detection/capa.json",
+        "sha256": "121a0296fb9efd2ce158e3720dbdf79c521945d3703a1056cc198cea187c1335",
+        "size_bytes": 1223,
+        "source": "fixture"
+      },
+      {
+        "evidence_id": "artifact:network",
+        "exists": true,
+        "hash_verified": true,
+        "kind": "detection_network",
+        "raw": {},
+        "relative_path": "detection/network.json",
+        "sha256": "e834a416d403515cfe22a3ea39aedf329da500e56cdf9e99255b8812775c4085",
+        "size_bytes": 2825,
+        "source": "fixture"
+      }
+    ],
+    "coverage": {},
+    "detection": {
+      "behavioral_status": "partial",
+      "coverage": {
+        "capa": "completed",
+        "network": "partial",
+        "pe": "completed",
+        "yara": "completed"
+      },
+      "effective_config": {
+        "behavioral": true,
+        "capa": {
+          "enabled": true,
+          "executable": null,
+          "executable_sha256": null,
+          "limits": {
+            "depth": 16,
+            "features": 256,
+            "files": 32,
+            "findings": 512,
+            "flows": 4096,
+            "input_bytes": 33554432,
+            "match_bytes": 64,
+            "memory_bytes": 536870912,
+            "offsets": 256,
+            "output_bytes": 4194304,
+            "packets": 100000,
+            "rules": 10000,
+            "string_bytes": 2048,
+            "strings": 2048,
+            "timeout_seconds": 60
+          },
+          "rules": {
+            "id": "foxhole-test",
+            "sha256": "87cb887cda9df7bacb300f2ee2530b46ee48098d1e8cc31f4a6ccdedcee509d0",
+            "version": "1"
+          },
+          "user_rules": null
+        },
+        "max_capture_bytes": 67108864,
+        "max_total_output_bytes": 16777216,
+        "network": {
+          "enabled": true,
+          "executable": null,
+          "executable_sha256": null,
+          "limits": {
+            "depth": 16,
+            "features": 256,
+            "files": 32,
+            "findings": 512,
+            "flows": 4096,
+            "input_bytes": 33554432,
+            "match_bytes": 64,
+            "memory_bytes": 536870912,
+            "offsets": 256,
+            "output_bytes": 4194304,
+            "packets": 100000,
+            "rules": 10000,
+            "string_bytes": 2048,
+            "strings": 2048,
+            "timeout_seconds": 60
+          },
+          "rules": {
+            "id": "foxhole-test",
+            "sha256": "9ca995134b4dcef0a0abd63ff570fe8f7368a12583c69e3ccee7633f146049e9",
+            "version": "1"
+          },
+          "user_rules": null
+        },
+        "pe": {
+          "enabled": true,
+          "executable": null,
+          "executable_sha256": null,
+          "limits": {
+            "depth": 16,
+            "features": 256,
+            "files": 32,
+            "findings": 512,
+            "flows": 4096,
+            "input_bytes": 33554432,
+            "match_bytes": 64,
+            "memory_bytes": 536870912,
+            "offsets": 256,
+            "output_bytes": 4194304,
+            "packets": 100000,
+            "rules": 10000,
+            "string_bytes": 2048,
+            "strings": 2048,
+            "timeout_seconds": 60
+          },
+          "rules": null,
+          "user_rules": null
+        },
+        "schema_version": 1,
+        "total_timeout_seconds": 180,
+        "yara": {
+          "enabled": true,
+          "executable": null,
+          "executable_sha256": null,
+          "limits": {
+            "depth": 16,
+            "features": 256,
+            "files": 32,
+            "findings": 512,
+            "flows": 4096,
+            "input_bytes": 33554432,
+            "match_bytes": 64,
+            "memory_bytes": 536870912,
+            "offsets": 256,
+            "output_bytes": 4194304,
+            "packets": 100000,
+            "rules": 10000,
+            "string_bytes": 2048,
+            "strings": 2048,
+            "timeout_seconds": 60
+          },
+          "rules": {
+            "id": "foxhole-test",
+            "sha256": "b90f27f8b1ba0c194d8f9b78cfb381d71da04fbbbeeda52cfe2d394ffc8af8f7",
+            "version": "1"
+          },
+          "user_rules": null
+        }
+      },
+      "network_flows": [
+        {
+          "capture_sha256": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+          "captured_bytes": 126,
+          "destination": "1.1.1.1",
+          "destination_port": 443,
+          "evidence_ids": [
+            "artifact:capture",
+            "artifact:network"
+          ],
+          "first_timestamp_us": 1002000,
+          "flow": "2aade65a365117f2057cf623fcd78648",
+          "last_timestamp_us": 1002000,
+          "packet_count": 1,
+          "protocol": "tcp",
+          "source": "10.0.0.2",
+          "source_port": 50002
+        },
+        {
+          "capture_sha256": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+          "captured_bytes": 87,
+          "destination": "1.1.1.1",
+          "destination_port": 50000,
+          "evidence_ids": [
+            "artifact:capture",
+            "artifact:network"
+          ],
+          "first_timestamp_us": 1000000,
+          "flow": "9244fce93ecc4f315ceaf198c6afc8bd",
+          "last_timestamp_us": 1000000,
+          "packet_count": 1,
+          "protocol": "udp",
+          "source": "10.0.0.2",
+          "source_port": 53
+        },
+        {
+          "capture_sha256": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+          "captured_bytes": 123,
+          "destination": "1.1.1.1",
+          "destination_port": 80,
+          "evidence_ids": [
+            "artifact:capture",
+            "artifact:network"
+          ],
+          "first_timestamp_us": 1001000,
+          "flow": "a98fa9055ab0206c68b49b79c75ffd3c",
+          "last_timestamp_us": 1001000,
+          "packet_count": 1,
+          "protocol": "tcp",
+          "source": "10.0.0.2",
+          "source_port": 50001
+        }
+      ],
+      "packet_correlations": [],
+      "schema_version": 1,
+      "stages": [
+        {
+          "completed_at_ms": null,
+          "duration_ms": null,
+          "evidence_ids": [
+            "artifact:capa",
+            "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+          ],
+          "findings": [
+            {
+              "attack": [],
+              "evidence_ids": [
+                "artifact:capa",
+                "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+              ],
+              "features": [
+                "{\"description\":null,\"import\":\"kernel32.ExitProcess\",\"type\":\"import\"}"
+              ],
+              "id": "match:ff015f71b3e2e3dc632ad886a324e642",
+              "locations": [
+                {
+                  "excerpt_hex": "",
+                  "kind": "absolute",
+                  "length": 0,
+                  "offset": 4198784
+                }
+              ],
+              "maec": {},
+              "mbc": [],
+              "metadata": {},
+              "namespace": "foxhole/test",
+              "rule": "import harmless exit function",
+              "rule_pack": "foxhole-test",
+              "scope": "file",
+              "tags": [],
+              "title": "import harmless exit function"
+            }
+          ],
+          "limits": {
+            "depth": 16,
+            "features": 256,
+            "files": 32,
+            "findings": 512,
+            "flows": 4096,
+            "input_bytes": 33554432,
+            "match_bytes": 64,
+            "memory_bytes": 536870912,
+            "offsets": 256,
+            "output_bytes": 4194304,
+            "packets": 100000,
+            "rules": 10000,
+            "string_bytes": 2048,
+            "strings": 2048,
+            "timeout_seconds": 60
+          },
+          "original": {
+            "path": "detection/capa.json",
+            "sha256": "121a0296fb9efd2ce158e3720dbdf79c521945d3703a1056cc198cea187c1335"
+          },
+          "packets": [],
+          "pe": null,
+          "rule_packs": [
+            {
+              "id": "foxhole-test",
+              "sha256": "87cb887cda9df7bacb300f2ee2530b46ee48098d1e8cc31f4a6ccdedcee509d0",
+              "trusted": true,
+              "version": "1"
+            }
+          ],
+          "scanner": "capa",
+          "schema_version": 1,
+          "started_at_ms": null,
+          "status": "completed",
+          "strings": [],
+          "target": "primary",
+          "target_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+          "truncated": false,
+          "version": "9.2.1",
+          "warnings": []
+        },
+        {
+          "completed_at_ms": null,
+          "duration_ms": null,
+          "evidence_ids": [
+            "artifact:capture",
+            "artifact:network"
+          ],
+          "findings": [
+            {
+              "attack": [],
+              "evidence_ids": [
+                "artifact:capture",
+                "artifact:network"
+              ],
+              "features": [
+                "flow:a98fa9055ab0206c68b49b79c75ffd3c",
+                "timestamp_us:1001000"
+              ],
+              "id": "match:a77aa1c07d2a40ce7a5aeef95e513457:2",
+              "locations": [
+                {
+                  "excerpt_hex": "",
+                  "kind": "packet",
+                  "length": 0,
+                  "offset": 2
+                }
+              ],
+              "maec": {},
+              "mbc": [],
+              "metadata": {},
+              "namespace": "foxhole/packet",
+              "rule": "foxhole_test_domain",
+              "rule_pack": "foxhole-test",
+              "scope": "file",
+              "tags": [],
+              "title": "foxhole_test_domain"
+            }
+          ],
+          "limits": {
+            "depth": 16,
+            "features": 256,
+            "files": 32,
+            "findings": 512,
+            "flows": 4096,
+            "input_bytes": 33554432,
+            "match_bytes": 64,
+            "memory_bytes": 536870912,
+            "offsets": 256,
+            "output_bytes": 4194304,
+            "packets": 100000,
+            "rules": 10000,
+            "string_bytes": 2048,
+            "strings": 2048,
+            "timeout_seconds": 60
+          },
+          "original": {
+            "path": "detection/network.json",
+            "sha256": "e834a416d403515cfe22a3ea39aedf329da500e56cdf9e99255b8812775c4085"
+          },
+          "packets": [
+            {
+              "bytes": 87,
+              "destination": "1.1.1.1",
+              "destination_port": 50000,
+              "direction": "unknown",
+              "dns_answers": [
+                "1.1.1.1"
+              ],
+              "dns_query": "example.com",
+              "evidence_ids": [
+                "artifact:capture",
+                "artifact:network"
+              ],
+              "flow": "9244fce93ecc4f315ceaf198c6afc8bd",
+              "http_host": null,
+              "http_method": null,
+              "http_path": null,
+              "id": "packet:1",
+              "packet": 1,
+              "protocol": "udp",
+              "source": "10.0.0.2",
+              "source_port": 53,
+              "timestamp_us": 1000000,
+              "tls": {},
+              "tls_sni": null,
+              "user_agent": null
+            },
+            {
+              "bytes": 123,
+              "destination": "1.1.1.1",
+              "destination_port": 80,
+              "direction": "unknown",
+              "dns_answers": [],
+              "dns_query": null,
+              "evidence_ids": [
+                "artifact:capture",
+                "artifact:network"
+              ],
+              "flow": "a98fa9055ab0206c68b49b79c75ffd3c",
+              "http_host": "example.com",
+              "http_method": "GET",
+              "http_path": "/fixture",
+              "id": "packet:2",
+              "packet": 2,
+              "protocol": "tcp",
+              "source": "10.0.0.2",
+              "source_port": 50001,
+              "timestamp_us": 1001000,
+              "tls": {},
+              "tls_sni": null,
+              "user_agent": "Foxhole/1.0"
+            },
+            {
+              "bytes": 126,
+              "destination": "1.1.1.1",
+              "destination_port": 443,
+              "direction": "unknown",
+              "dns_answers": [],
+              "dns_query": null,
+              "evidence_ids": [
+                "artifact:capture",
+                "artifact:network"
+              ],
+              "flow": "2aade65a365117f2057cf623fcd78648",
+              "http_host": null,
+              "http_method": null,
+              "http_path": null,
+              "id": "packet:3",
+              "packet": 3,
+              "protocol": "tcp",
+              "source": "10.0.0.2",
+              "source_port": 50002,
+              "timestamp_us": 1002000,
+              "tls": {
+                "ja3": "1e7c622032b0cb79401b0f7be3793a1a",
+                "record_version": "771",
+                "visibility": "handshake_only_encrypted_http_not_inspected"
+              },
+              "tls_sni": "example.com",
+              "user_agent": null
+            }
+          ],
+          "pe": null,
+          "rule_packs": [
+            {
+              "id": "foxhole-test",
+              "sha256": "9ca995134b4dcef0a0abd63ff570fe8f7368a12583c69e3ccee7633f146049e9",
+              "trusted": true,
+              "version": "1"
+            }
+          ],
+          "scanner": "network",
+          "schema_version": 1,
+          "started_at_ms": null,
+          "status": "partial",
+          "strings": [],
+          "target": "extracted-files/capture.pcapng",
+          "target_sha256": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+          "truncated": false,
+          "version": "foxhole-packet-1",
+          "warnings": [
+            {
+              "code": "packet_local_analysis_no_tcp_reassembly_encrypted_http_not_inspected",
+              "message": "packet local analysis no tcp reassembly encrypted http not inspected"
+            }
+          ]
+        },
+        {
+          "completed_at_ms": null,
+          "duration_ms": null,
+          "evidence_ids": [
+            "artifact:pe",
+            "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+          ],
+          "findings": [],
+          "limits": {
+            "depth": 16,
+            "features": 256,
+            "files": 32,
+            "findings": 512,
+            "flows": 4096,
+            "input_bytes": 33554432,
+            "match_bytes": 64,
+            "memory_bytes": 536870912,
+            "offsets": 256,
+            "output_bytes": 4194304,
+            "packets": 100000,
+            "rules": 10000,
+            "string_bytes": 2048,
+            "strings": 2048,
+            "timeout_seconds": 60
+          },
+          "original": {
+            "path": "detection/pe.json",
+            "sha256": "86627d9ad2749b58c1a269ec6cb97625c06f71a9c55ac911fb8cbe86d6f194a8"
+          },
+          "packets": [],
+          "pe": {
+            "architecture": "x86",
+            "authenticode_status": "unsigned",
+            "authentihash": "09883cab5c6368c1f06f77b95b1ef0b7fb47aebddbf122b2de66707d4a20ad6c",
+            "certificates": [],
+            "compile_timestamp_untrusted": 0,
+            "debug": [],
+            "embedded_pe_offsets": [],
+            "entry_point": 4096,
+            "exports": [],
+            "fuzzy_hash": "tlsh:T1AF31A9E72A9ACAB1C4180B3210C3500F3AF020B00BE2C32003812D261C13375A8B0F22",
+            "image_base": 4194304,
+            "imphash": "f9ade0aa18f660a34a4fa23392e21838",
+            "imports": [
+              "KERNEL32.dll!ExitProcess"
+            ],
+            "overlay_size": 0,
+            "packer_compiler": [],
+            "resources": [],
+            "sections": [
+              {
+                "entropy": 1.128424,
+                "name": ".text",
+                "offset": 512,
+                "permissions": "RX",
+                "raw_size": 1024,
+                "sha256": "f2d0563ae57ff94d872216d1fb9b2d0a612235696b07e342f4a6da55017eb297",
+                "virtual_size": 1024
+              }
+            ],
+            "subsystem": 3,
+            "tls_callbacks": []
+          },
+          "rule_packs": [],
+          "scanner": "pe",
+          "schema_version": 1,
+          "started_at_ms": null,
+          "status": "completed",
+          "strings": [
+            {
+              "method": "ascii",
+              "offset": 376,
+              "value": ".text"
+            },
+            {
+              "method": "ascii",
+              "offset": 914,
+              "value": "ExitProcess"
+            },
+            {
+              "method": "ascii",
+              "offset": 1024,
+              "value": "FOXHOLE_HARMLESS_TEST"
+            },
+            {
+              "method": "ascii",
+              "offset": 864,
+              "value": "KERNEL32.dll"
+            },
+            {
+              "method": "ascii",
+              "offset": 1074,
+              "value": "aHR0cHM6Ly9leGFtcGxlLm9yZy8="
+            },
+            {
+              "method": "ascii",
+              "offset": 1046,
+              "value": "https://example.com/fixture"
+            },
+            {
+              "method": "base64",
+              "offset": 1074,
+              "value": "https://example.org/"
+            }
+          ],
+          "target": "primary",
+          "target_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+          "truncated": false,
+          "version": "2024.8.26",
+          "warnings": []
+        },
+        {
+          "completed_at_ms": null,
+          "duration_ms": null,
+          "evidence_ids": [
+            "artifact:yara",
+            "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+          ],
+          "findings": [
+            {
+              "attack": [],
+              "evidence_ids": [
+                "artifact:yara",
+                "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+              ],
+              "features": [],
+              "id": "match:e13f7cb1068a5bbca4bad7e00254e481",
+              "locations": [
+                {
+                  "excerpt_hex": "464f58484f4c455f4841524d4c4553535f54455354",
+                  "kind": "file",
+                  "length": 21,
+                  "offset": 1024
+                }
+              ],
+              "maec": {},
+              "mbc": [],
+              "metadata": {
+                "description": "Harmless fixture"
+              },
+              "namespace": "foxhole",
+              "rule": "harmless_marker",
+              "rule_pack": "foxhole-test",
+              "scope": "file",
+              "tags": [],
+              "title": "harmless_marker"
+            }
+          ],
+          "limits": {
+            "depth": 16,
+            "features": 256,
+            "files": 32,
+            "findings": 512,
+            "flows": 4096,
+            "input_bytes": 33554432,
+            "match_bytes": 64,
+            "memory_bytes": 536870912,
+            "offsets": 256,
+            "output_bytes": 4194304,
+            "packets": 100000,
+            "rules": 10000,
+            "string_bytes": 2048,
+            "strings": 2048,
+            "timeout_seconds": 60
+          },
+          "original": {
+            "path": "detection/yara.json",
+            "sha256": "0052351de9dd5d30c3889c6185243f8aa28d918c72e833d0252407ae25a48380"
+          },
+          "packets": [],
+          "pe": null,
+          "rule_packs": [
+            {
+              "id": "foxhole-test",
+              "sha256": "b90f27f8b1ba0c194d8f9b78cfb381d71da04fbbbeeda52cfe2d394ffc8af8f7",
+              "trusted": true,
+              "version": "1"
+            }
+          ],
+          "scanner": "yara",
+          "schema_version": 1,
+          "started_at_ms": null,
+          "status": "completed",
+          "strings": [],
+          "target": "primary",
+          "target_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+          "truncated": false,
+          "version": "4.5.2",
+          "warnings": []
+        }
+      ],
+      "warnings": [
+        {
+          "code": "telemetry_incomplete_absence_is_not_safety",
+          "message": "telemetry incomplete absence is not safety"
+        }
+      ]
+    },
+    "execution": {
+      "pid": 1
+    },
+    "file_events": [],
+    "limitations": [],
+    "network_events": [],
+    "normalized_event_counts": {
+      "filesystem": 0,
+      "network": 0,
+      "process": 0,
+      "registry": 0
+    },
+    "processes": [],
+    "raw": {
+      "guest_result": {
+        "detection_config": {
+          "behavioral": true,
+          "capa": {
+            "enabled": true,
+            "executable": null,
+            "executable_sha256": null,
+            "limits": {
+              "depth": 16,
+              "features": 256,
+              "files": 32,
+              "findings": 512,
+              "flows": 4096,
+              "input_bytes": 33554432,
+              "match_bytes": 64,
+              "memory_bytes": 536870912,
+              "offsets": 256,
+              "output_bytes": 4194304,
+              "packets": 100000,
+              "rules": 10000,
+              "string_bytes": 2048,
+              "strings": 2048,
+              "timeout_seconds": 60
+            },
+            "rules": {
+              "id": "foxhole-test",
+              "sha256": "87cb887cda9df7bacb300f2ee2530b46ee48098d1e8cc31f4a6ccdedcee509d0",
+              "version": "1"
+            },
+            "user_rules": null
+          },
+          "max_capture_bytes": 67108864,
+          "max_total_output_bytes": 16777216,
+          "network": {
+            "enabled": true,
+            "executable": null,
+            "executable_sha256": null,
+            "limits": {
+              "depth": 16,
+              "features": 256,
+              "files": 32,
+              "findings": 512,
+              "flows": 4096,
+              "input_bytes": 33554432,
+              "match_bytes": 64,
+              "memory_bytes": 536870912,
+              "offsets": 256,
+              "output_bytes": 4194304,
+              "packets": 100000,
+              "rules": 10000,
+              "string_bytes": 2048,
+              "strings": 2048,
+              "timeout_seconds": 60
+            },
+            "rules": {
+              "id": "foxhole-test",
+              "sha256": "9ca995134b4dcef0a0abd63ff570fe8f7368a12583c69e3ccee7633f146049e9",
+              "version": "1"
+            },
+            "user_rules": null
+          },
+          "pe": {
+            "enabled": true,
+            "executable": null,
+            "executable_sha256": null,
+            "limits": {
+              "depth": 16,
+              "features": 256,
+              "files": 32,
+              "findings": 512,
+              "flows": 4096,
+              "input_bytes": 33554432,
+              "match_bytes": 64,
+              "memory_bytes": 536870912,
+              "offsets": 256,
+              "output_bytes": 4194304,
+              "packets": 100000,
+              "rules": 10000,
+              "string_bytes": 2048,
+              "strings": 2048,
+              "timeout_seconds": 60
+            },
+            "rules": null,
+            "user_rules": null
+          },
+          "schema_version": 1,
+          "total_timeout_seconds": 180,
+          "yara": {
+            "enabled": true,
+            "executable": null,
+            "executable_sha256": null,
+            "limits": {
+              "depth": 16,
+              "features": 256,
+              "files": 32,
+              "findings": 512,
+              "flows": 4096,
+              "input_bytes": 33554432,
+              "match_bytes": 64,
+              "memory_bytes": 536870912,
+              "offsets": 256,
+              "output_bytes": 4194304,
+              "packets": 100000,
+              "rules": 10000,
+              "string_bytes": 2048,
+              "strings": 2048,
+              "timeout_seconds": 60
+            },
+            "rules": {
+              "id": "foxhole-test",
+              "sha256": "b90f27f8b1ba0c194d8f9b78cfb381d71da04fbbbeeda52cfe2d394ffc8af8f7",
+              "version": "1"
+            },
+            "user_rules": null
+          }
+        }
+      }
+    },
+    "raw_event_counts": {
+      "filesystem": 0,
+      "network": 0,
+      "process": 0,
+      "registry": 0
+    },
+    "registry_events": [],
+    "run_id": "fixture",
+    "sandbox": {},
+    "schema_version": "1.0",
+    "source_paths": [],
+    "target": {
+      "sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+      "size_bytes": 1536
+    },
+    "target_hashes": [],
+    "validation_warnings": []
+  },
+  "verdict": {
+    "confidence": 0.56,
+    "findings": [
+      {
+        "confidence": 0.4,
+        "details": {
+          "association": "direct",
+          "attack": [],
+          "false_positive_guidance": "Capabilities describe possible code behavior; missing telemetry is not evidence of safety.",
+          "file_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+          "namespace": "foxhole/capability",
+          "required_events": [
+            "static_capability",
+            "mapped_runtime_event"
+          ],
+          "score_group": "",
+          "source": "behavioral",
+          "version": "1",
+          "window_ms": 120000
+        },
+        "evidence": [
+          {
+            "evidence_id": "artifact:capa",
+            "exact_value": "import harmless exit function",
+            "inferred": false,
+            "kind": "static_capability",
+            "observed_at_ms": 0,
+            "parent_pid": null,
+            "pid": 0,
+            "process_image": "",
+            "source_artifact": ""
+          },
+          {
+            "evidence_id": "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+            "exact_value": "import harmless exit function",
+            "inferred": false,
+            "kind": "static_capability",
+            "observed_at_ms": 0,
+            "parent_pid": null,
+            "pid": 0,
+            "process_image": "",
+            "source_artifact": ""
+          }
+        ],
+        "explanation": "No matching runtime evidence was available. This does not establish that the capability was absent, contradicted, or safe.",
+        "rule_id": "FH-B018:match:ff015f71b3e2e3dc632ad886a324e642",
+        "score_contribution": 0,
+        "severity": "informational",
+        "title": "Static capability not confirmed by available telemetry"
+      },
+      {
+        "confidence": 0.8,
+        "details": {
+          "association": "static",
+          "attack": [],
+          "false_positive_guidance": "A rule or capability match is context, not proof of malicious execution.",
+          "file_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+          "namespace": "foxhole/test",
+          "required_events": [],
+          "score_group": "",
+          "source": "capa",
+          "version": "1",
+          "window_ms": null
+        },
+        "evidence": [
+          {
+            "evidence_id": "artifact:capa",
+            "exact_value": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf import harmless exit function",
+            "inferred": false,
+            "kind": "scanner_artifact",
+            "observed_at_ms": 0,
+            "parent_pid": null,
+            "pid": 0,
+            "process_image": "",
+            "source_artifact": "detection/capa.json"
+          },
+          {
+            "evidence_id": "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+            "exact_value": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf import harmless exit function",
+            "inferred": false,
+            "kind": "scanner_artifact",
+            "observed_at_ms": 0,
+            "parent_pid": null,
+            "pid": 0,
+            "process_image": "",
+            "source_artifact": "detection/capa.json"
+          }
+        ],
+        "explanation": "Static capability; this does not establish that the action executed.",
+        "rule_id": "capa:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf:match:ff015f71b3e2e3dc632ad886a324e642",
+        "score_contribution": 0,
+        "severity": "informational",
+        "title": "import harmless exit function"
+      },
+      {
+        "confidence": 0.8,
+        "details": {
+          "association": "static",
+          "attack": [],
+          "false_positive_guidance": "A rule or capability match is context, not proof of malicious execution.",
+          "file_sha256": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+          "namespace": "foxhole/packet",
+          "required_events": [],
+          "score_group": "",
+          "source": "network",
+          "version": "1",
+          "window_ms": null
+        },
+        "evidence": [
+          {
+            "evidence_id": "artifact:capture",
+            "exact_value": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64 foxhole_test_domain",
+            "inferred": false,
+            "kind": "scanner_artifact",
+            "observed_at_ms": 0,
+            "parent_pid": null,
+            "pid": 0,
+            "process_image": "",
+            "source_artifact": "detection/network.json"
+          },
+          {
+            "evidence_id": "artifact:network",
+            "exact_value": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64 foxhole_test_domain",
+            "inferred": false,
+            "kind": "scanner_artifact",
+            "observed_at_ms": 0,
+            "parent_pid": null,
+            "pid": 0,
+            "process_image": "",
+            "source_artifact": "detection/network.json"
+          }
+        ],
+        "explanation": "Deterministic scanner finding; no independent verdict score.",
+        "rule_id": "network:43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64:match:a77aa1c07d2a40ce7a5aeef95e513457:2",
+        "score_contribution": 0,
+        "severity": "informational",
+        "title": "foxhole_test_domain"
+      },
+      {
+        "confidence": 0.8,
+        "details": {
+          "association": "static",
+          "attack": [],
+          "false_positive_guidance": "A rule or capability match is context, not proof of malicious execution.",
+          "file_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+          "namespace": "foxhole",
+          "required_events": [],
+          "score_group": "",
+          "source": "yara",
+          "version": "1",
+          "window_ms": null
+        },
+        "evidence": [
+          {
+            "evidence_id": "artifact:yara",
+            "exact_value": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf harmless_marker",
+            "inferred": false,
+            "kind": "scanner_artifact",
+            "observed_at_ms": 0,
+            "parent_pid": null,
+            "pid": 0,
+            "process_image": "",
+            "source_artifact": "detection/yara.json"
+          },
+          {
+            "evidence_id": "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+            "exact_value": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf harmless_marker",
+            "inferred": false,
+            "kind": "scanner_artifact",
+            "observed_at_ms": 0,
+            "parent_pid": null,
+            "pid": 0,
+            "process_image": "",
+            "source_artifact": "detection/yara.json"
+          }
+        ],
+        "explanation": "Deterministic scanner finding; no independent verdict score.",
+        "rule_id": "yara:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf:match:e13f7cb1068a5bbca4bad7e00254e481",
+        "score_contribution": 0,
+        "severity": "informational",
+        "title": "harmless_marker"
+      }
+    ],
+    "normalized_input_sha256": "0ac98da58ee518583f6bf9279ab56a450df918712e37c3a2c1f0025b8945653c",
+    "run_id": "fixture",
+    "schema_version": "1.0",
+    "score": 0,
+    "scoring_model": {
+      "calculation": "maximum contribution per behavior family; overlapping evidence is scored once; scanners contribute zero; explicit malicious Foxhole rules remain authoritative",
+      "informational_points": 0,
+      "malicious_minimum": 60,
+      "malicious_points": 70,
+      "suspicious_points": 30,
+      "suspicious_range": [
+        20,
+        59
+      ]
+    },
+    "timeline": [],
+    "verdict": "inconclusive",
+    "warnings": []
+  }
+}

@@ -51,6 +51,10 @@ $ProgressPreference = 'SilentlyContinue'
 function Require-Command([string]$Name) {
     if ($null -eq (Get-Command -Name $Name -ErrorAction SilentlyContinue)) { throw "Required command is unavailable: $Name" }
 }
+function Test-CaptureLimit($Value) {
+    # Windows may expose a formatted value instead of UInt64; retain exact bounds.
+    return ([string]$Value).Trim() -match '^128(?:\s+MB)?$'
+}
 try {
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
     foreach ($name in @('Get-VM','Get-VMSwitch','Get-VMNetworkAdapter','Add-VMNetworkAdapter','Remove-VMNetworkAdapter',
@@ -218,13 +222,13 @@ try {
             Start-NetEventSession -Name ([string]$request.capture_session) -ErrorAction Stop | Out-Null
         }
         $capture = Get-NetEventSession -Name ([string]$request.capture_session) -ErrorAction Stop
-        $captureActive = [string]$capture.CaptureMode -eq 'SaveToFile' -and [string]$capture.LocalFilePath -eq [string]$request.capture_file -and [string]$capture.SessionStatus -eq 'Running'
+        $captureActive = [string]$capture.CaptureMode -eq 'SaveToFile' -and [string]$capture.LocalFilePath -eq [string]$request.capture_file -and [string]$capture.SessionStatus -eq 'Running' -and (Test-CaptureLimit $capture.MaxFileSize)
         $provider = Get-NetEventPacketCaptureProvider -SessionName ([string]$request.capture_session) -ErrorAction Stop
         $providerAddresses = @($provider.IpAddresses | ForEach-Object { [string]$_ })
         $captureActive = $captureActive -and $providerAddresses.Count -eq 1 -and $providerAddresses[0] -eq [string]$request.guest_ipv4 -and
             [string]$provider.CaptureType -eq 'Switch' -and [string]$provider.VmCaptureDirection -eq 'IngressAndEgress' -and
             @($provider.EtherType) -contains 2048 -and [uint16]$provider.TruncationLength -eq 0
-        if (-not $captureActive) { throw 'Required external-network capture is not active' }
+        if (-not $captureActive) { throw 'Required host network capture is not active' }
     }
     $guestSeen = $null
     if (@($adapters[0].IPAddresses) -contains [string]$request.guest_ipv4) { $guestSeen = [string]$request.guest_ipv4 }
@@ -705,10 +709,8 @@ pub(crate) fn activate(
         None,
     ));
     *firewall_rules = rules;
-    if matches!(network_mode, ControlledNetworkMode::External) {
-        *capture_session = Some(format!("FoxholeNet-{run_id}"));
-        *capture_file = Some(run_root.join("network-capture.etl"));
-    }
+    *capture_session = Some(format!("FoxholeNet-{run_id}"));
+    *capture_file = Some(run_root.join("network-capture.etl"));
     Ok(Some(lease))
 }
 
@@ -1479,8 +1481,14 @@ pub(crate) fn metadata(
                 .map(|rule| rule.name.clone())
                 .chain(host_firewall_rule_id.iter().cloned())
                 .collect(),
-            capture_status: if capture_session.is_some() {
-                "active_before_target"
+            capture_status: if capture_session.is_some()
+                && cleanup_results.iter().any(|r| r.starts_with("capture:"))
+            {
+                "stopped_after_vm_removal"
+            } else if capture_session.is_some() && pre.as_ref().is_some_and(|v| v.capture_active) {
+                "active_before_target_stop_unconfirmed"
+            } else if capture_session.is_some() {
+                "requested_start_unconfirmed"
             } else {
                 "not_requested"
             }
@@ -1938,7 +1946,7 @@ mod tests {
         assert!(allows.iter().any(|rule| rule.direction == "Inbound"));
         assert!(dns_servers.is_empty());
         assert!(gateway_ipv4.is_none());
-        assert!(capture_session.is_none());
+        assert!(capture_session.is_some());
         release_guest_address(&lease).unwrap();
         fs::remove_dir_all(directory).unwrap();
     }
@@ -2018,6 +2026,20 @@ mod tests {
                 && rule.remote_addresses == ["Any"]
                 && rule.remote_ports == ["53"]
         }));
+        // Capture instrumentation must not create a UDP/QUIC or inbound TCP allow.
+        assert!(
+            allows
+                .iter()
+                .filter(|rule| rule.remote_ports != ["53"])
+                .all(|rule| rule.protocol == "TCP" && rule.direction == "Outbound")
+        );
+        for direction in ["Inbound", "Outbound"] {
+            assert!(firewall_rules.iter().any(|rule| rule.direction == direction
+                && rule.action == "Deny"
+                && rule.protocol == "Any"
+                && rule.remote_addresses == ["Any"]
+                && rule.remote_ports.is_empty()));
+        }
         for blocked in forbidden_ipv4_cidrs() {
             assert!(
                 firewall_rules
@@ -2131,7 +2153,7 @@ mod tests {
                     "Foxhole-44444444444444444444444444444444-host-inbound".to_string(),
                 ))
                 .collect(),
-            capture_active: false,
+            capture_active: true,
             ipv6_disabled: true,
             no_unexpected_routes: true,
             warnings: Vec::new(),
@@ -2145,6 +2167,9 @@ mod tests {
         assert!(verify_attachment(&plan, &drift, true).is_err());
         drift = valid.clone();
         drift.firewall_rule_ids.clear();
+        assert!(verify_attachment(&plan, &drift, true).is_err());
+        drift = valid.clone();
+        drift.ipv6_disabled = false;
         assert!(verify_attachment(&plan, &drift, true).is_err());
         drift = valid;
         drift.guest_ipv4 = None;

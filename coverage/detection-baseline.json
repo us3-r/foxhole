@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "scope": "Windows 1.93.1 all targets, seven desktop-dependent tests in separate privileged job; guest worker Python 3.13 synthetic fixtures",
+  "initial_measurement_date": "2026-09-07",
+  "minimum_percent": {
+    "rust_lines": 58,
+    "rust_branches": 46,
+    "critical_lines": 85,
+    "critical_branches": 56,
+    "worker_lines": 77,
+    "worker_branches": 64
+  },
+  "initial_measured_percent": {
+    "rust_lines": 58.909522,
+    "rust_branches": 46.703066,
+    "critical_lines": 85.461802,
+    "critical_branches": 56.862745,
+    "worker_lines": 77.48538,
+    "worker_branches": 64.571429
+  }
+}

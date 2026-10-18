@@ -1,0 +1,74 @@
+{
+  "completed_at_ms": null,
+  "duration_ms": null,
+  "evidence_ids": [
+    "primary"
+  ],
+  "findings": [
+    {
+      "attack": [],
+      "evidence_ids": [
+        "primary"
+      ],
+      "features": [
+        "{\"description\":null,\"import\":\"kernel32.ExitProcess\",\"type\":\"import\"}"
+      ],
+      "id": "match:ff015f71b3e2e3dc632ad886a324e642",
+      "locations": [
+        {
+          "excerpt_hex": "",
+          "kind": "absolute",
+          "length": 0,
+          "offset": 4198784
+        }
+      ],
+      "maec": {},
+      "mbc": [],
+      "metadata": {},
+      "namespace": "foxhole/test",
+      "rule": "import harmless exit function",
+      "rule_pack": "foxhole-test",
+      "scope": "file",
+      "tags": [],
+      "title": "import harmless exit function"
+    }
+  ],
+  "limits": {
+    "depth": 16,
+    "features": 256,
+    "files": 32,
+    "findings": 512,
+    "flows": 4096,
+    "input_bytes": 33554432,
+    "match_bytes": 64,
+    "memory_bytes": 536870912,
+    "offsets": 256,
+    "output_bytes": 4194304,
+    "packets": 100000,
+    "rules": 10000,
+    "string_bytes": 2048,
+    "strings": 2048,
+    "timeout_seconds": 60
+  },
+  "original": null,
+  "packets": [],
+  "pe": null,
+  "rule_packs": [
+    {
+      "id": "foxhole-test",
+      "sha256": "87cb887cda9df7bacb300f2ee2530b46ee48098d1e8cc31f4a6ccdedcee509d0",
+      "trusted": true,
+      "version": "1"
+    }
+  ],
+  "scanner": "capa",
+  "schema_version": 1,
+  "started_at_ms": null,
+  "status": "completed",
+  "strings": [],
+  "target": "primary",
+  "target_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+  "truncated": false,
+  "version": "9.2.1",
+  "warnings": []
+}

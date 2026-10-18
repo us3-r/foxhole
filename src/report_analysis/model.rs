@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 pub const NORMALIZED_SCHEMA_VERSION: &str = "1.0";
 pub const VERDICT_SCHEMA_VERSION: &str = "1.0";
 pub const IOC_SCHEMA_VERSION: &str = "1.0";
+pub const VIRUSTOTAL_SCHEMA_VERSION: &str = "1.0";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RawEventCounts {
@@ -27,6 +28,12 @@ pub struct ValidationWarning {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct NormalizedRun {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capture_health: Vec<crate::structs::CaptureHealth>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub network_attempts: Vec<Value>,
+    #[serde(default)]
+    pub detection: crate::detection::DetectionReport,
     pub schema_version: String,
     pub run_id: String,
     pub target: Value,
@@ -171,6 +178,8 @@ pub struct EvidenceReference {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Finding {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<FindingDetails>,
     pub rule_id: String,
     pub severity: Severity,
     pub title: String,
@@ -219,6 +228,8 @@ pub struct IocSource {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct IocRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<IocDetails>,
     #[serde(rename = "type")]
     pub ioc_type: String,
     pub value: String,
@@ -231,6 +242,34 @@ pub struct IocRecord {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FindingDetails {
+    pub version: String,
+    pub source: String,
+    pub namespace: String,
+    pub file_sha256: Option<String>,
+    pub attack: Vec<String>,
+    pub required_events: Vec<String>,
+    pub window_ms: Option<u64>,
+    pub association: String,
+    pub false_positive_guidance: String,
+    pub score_group: String,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct IocDetails {
+    pub confidence: u8,
+    pub source_categories: Vec<String>,
+    pub file_sha256: Vec<String>,
+    pub evidence_ids: Vec<String>,
+    pub extraction_methods: Vec<String>,
+    pub validation_status: String,
+    pub related_findings: Vec<String>,
+    pub relationships: Vec<String>,
+    pub offsets: Vec<u64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct IocReport {
     pub schema_version: String,
     pub run_id: String,
@@ -238,4 +277,72 @@ pub struct IocReport {
     pub counts_by_type: BTreeMap<String, usize>,
     pub indicators: Vec<IocRecord>,
     pub extraction_warnings: Vec<ValidationWarning>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VirusTotalStats {
+    pub malicious: u64,
+    pub suspicious: u64,
+    pub harmless: u64,
+    pub undetected: u64,
+    pub timeout: u64,
+    pub failure: u64,
+    pub type_unsupported: u64,
+    pub confirmed_timeout: u64,
+}
+
+impl VirusTotalStats {
+    pub fn total(&self) -> u64 {
+        self.malicious
+            + self.suspicious
+            + self.harmless
+            + self.undetected
+            + self.timeout
+            + self.failure
+            + self.type_unsupported
+            + self.confirmed_timeout
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VirusTotalEngineResult {
+    pub engine_name: String,
+    pub category: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine_update: Option<String>,
+    pub trusted: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VirusTotalFileReport {
+    pub role: String,
+    pub name: String,
+    pub path: String,
+    pub sha256: String,
+    pub status: String,
+    pub permalink: String,
+    pub discussion_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meaningful_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_analysis_date: Option<u64>,
+    pub stats: VirusTotalStats,
+    pub engines: Vec<VirusTotalEngineResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VirusTotalReport {
+    pub schema_version: String,
+    pub run_id: String,
+    pub status: String,
+    pub files: Vec<VirusTotalFileReport>,
+    pub warnings: Vec<String>,
 }

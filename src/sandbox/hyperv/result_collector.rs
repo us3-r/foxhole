@@ -214,7 +214,7 @@ pub(crate) fn collect(
         }
     }
 
-    for directory_name in ["screenshots", "extracted-files"] {
+    for directory_name in guest_protocol::ARTIFACT_ROOT_NAMES {
         let directory = output_root.join(directory_name);
         if !directory.exists() {
             continue;
@@ -326,7 +326,7 @@ pub(crate) fn collect_partial(
                 &mut archive,
             )?;
         }
-        for directory_name in ["screenshots", "extracted-files"] {
+        for directory_name in guest_protocol::ARTIFACT_ROOT_NAMES {
             let directory = output_root.join(directory_name);
             if directory.exists() {
                 validate_plain_directory(&directory)?;
@@ -1038,6 +1038,43 @@ fn validate_limits(limits: &CollectionLimits) -> SandboxResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partial_collection_preserves_scanner_json_bytes() {
+        let root = std::env::temp_dir().join(format!(
+            "foxhole-scanner-collection-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let source = root.join("source");
+        let archive = root.join("archive");
+        fs::create_dir_all(source.join("output/detection")).unwrap();
+        let bytes = b"{\"status\":\"completed\"}";
+        fs::write(source.join("output/detection/0000-yara.json"), bytes).unwrap();
+        let result = collect_partial(&source, &archive, &CollectionLimits::default()).unwrap();
+        assert_eq!(result.artifact_count, 1);
+        assert_eq!(result.total_bytes, bytes.len() as u64);
+        assert_eq!(
+            fs::read(archive.join("partial-guest-output/detection/0000-yara.json")).unwrap(),
+            bytes
+        );
+        fs::remove_file(source.join("output/detection/0000-yara.json")).unwrap();
+        fs::remove_file(archive.join("partial-guest-output/detection/0000-yara.json")).unwrap();
+        for directory in [
+            source.join("output/detection"),
+            source.join("output"),
+            source.clone(),
+            archive.join("partial-guest-output/detection"),
+            archive.join("partial-guest-output"),
+            archive,
+            root,
+        ] {
+            fs::remove_dir(directory).unwrap();
+        }
+    }
 
     #[test]
     fn captured_stream_decoder_handles_mixed_native_and_utf16_text() {

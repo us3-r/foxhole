@@ -1,0 +1,33 @@
+{
+  "architecture": "x86",
+  "authenticode_status": "unsigned",
+  "authentihash": "09883cab5c6368c1f06f77b95b1ef0b7fb47aebddbf122b2de66707d4a20ad6c",
+  "certificates": [],
+  "compile_timestamp_untrusted": 0,
+  "debug": [],
+  "embedded_pe_offsets": [],
+  "entry_point": 4096,
+  "exports": [],
+  "fuzzy_hash": "tlsh:T1AF31A9E72A9ACAB1C4180B3210C3500F3AF020B00BE2C32003812D261C13375A8B0F22",
+  "image_base": 4194304,
+  "imphash": "f9ade0aa18f660a34a4fa23392e21838",
+  "imports": [
+    "KERNEL32.dll!ExitProcess"
+  ],
+  "overlay_size": 0,
+  "packer_compiler": [],
+  "resources": [],
+  "sections": [
+    {
+      "entropy": 1.128424,
+      "name": ".text",
+      "offset": 512,
+      "permissions": "RX",
+      "raw_size": 1024,
+      "sha256": "f2d0563ae57ff94d872216d1fb9b2d0a612235696b07e342f4a6da55017eb297",
+      "virtual_size": 1024
+    }
+  ],
+  "subsystem": 3,
+  "tls_callbacks": []
+}

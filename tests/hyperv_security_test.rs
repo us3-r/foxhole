@@ -396,6 +396,7 @@ fn assert_invalid_resource_limits(request: &GuestRunRequest) {
 
 fn inert_hyperv_config() -> HyperVConfig {
     HyperVConfig {
+        detection: Default::default(),
         base_image_path: PathBuf::from("unused-base.vhdx"),
         base_manifest_path: PathBuf::from("unused-manifest.json"),
         run_root: std::env::temp_dir().join("foxhole-phase8-unused-runs"),
@@ -433,6 +434,7 @@ fn assert_rejected_without_work(output: &Output, expected_diagnostic: &str) {
 
 fn valid_request() -> GuestRunRequest {
     GuestRunRequest {
+        detection: Default::default(),
         protocol_version: PROTOCOL_VERSION,
         run_id: RUN_ID.to_string(),
         target: "input/foxhole_test_helper.exe".to_string(),
@@ -473,6 +475,7 @@ fn valid_result_envelope() -> GuestResultEnvelope<()> {
         warnings: Vec::new(),
     };
     GuestResultEnvelope {
+        detection_config: Default::default(),
         protocol_version: PROTOCOL_VERSION,
         run_id: RUN_ID.to_string(),
         agent_version: "phase8-test-agent".to_string(),
@@ -510,7 +513,9 @@ mod real_hyperv {
     const BASE_IMAGE_VARIABLE: &str = "FOXHOLE_HYPERV_BASE_IMAGE";
     const BASE_MANIFEST_VARIABLE: &str = "FOXHOLE_HYPERV_BASE_MANIFEST";
     const MAX_DIAGNOSTIC_BYTES: usize = 1024 * 1024;
-    const REAL_TEST_DEADLINE: Duration = Duration::from_secs(180);
+    // Includes image hashing, VM boot and collection, independently of the much
+    // shorter target timeout. Debug builds can spend minutes hashing a full VHDX.
+    const REAL_TEST_DEADLINE: Duration = Duration::from_secs(600);
     static CANARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
@@ -533,7 +538,9 @@ mod real_hyperv {
     #[test]
     #[ignore = "requires a disposable Hyper-V test host and FOXHOLE_HYPERV_TESTS=1"]
     fn real_hyperv_times_out_and_cleans_a_bounded_process_tree() {
-        let config = require_explicit_opt_in();
+        let mut config = require_explicit_opt_in();
+        // Exercise tree termination, rather than guest policy rejecting child creation.
+        config.exercise_native_guest_apis = true;
         let output = run_helper_with_timeout(&config, &["spawn-tree", "4", "5000"], 1);
         assert!(
             output.status.success(),
@@ -550,7 +557,9 @@ mod real_hyperv {
     #[test]
     #[ignore = "requires a disposable Hyper-V test host and FOXHOLE_HYPERV_TESTS=1"]
     fn real_hyperv_deny_all_blocks_a_bounded_test_net_connection() {
-        let config = require_explicit_opt_in();
+        let mut config = require_explicit_opt_in();
+        // Test Hyper-V's no-NIC boundary with a guest that can initialize Winsock.
+        config.exercise_native_guest_apis = true;
         let output = run_helper(&config, &["connect", "192.0.2.1:9", "250"]);
         assert!(
             output.status.success(),
@@ -560,7 +569,9 @@ mod real_hyperv {
         );
         assert!(
             String::from_utf8_lossy(&output.stdout).contains("exit=Some(2)"),
-            "the guest unexpectedly completed a connection while deny-all networking was selected"
+            "expected the helper's connection-failure exit code 2; another exit can indicate a loader failure\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
         );
     }
 
@@ -583,13 +594,16 @@ mod real_hyperv {
         );
         assert!(
             String::from_utf8_lossy(&output.stdout).contains("exit=Some(2)"),
-            "the guest unexpectedly read a randomized host-only canary"
+            "expected the helper's host-canary access-failure exit code 2; another exit can indicate a loader failure\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
         );
     }
 
     struct RealHyperVConfig {
         base_image: PathBuf,
         base_manifest: PathBuf,
+        exercise_native_guest_apis: bool,
     }
 
     fn require_explicit_opt_in() -> RealHyperVConfig {
@@ -611,6 +625,7 @@ mod real_hyperv {
         RealHyperVConfig {
             base_image,
             base_manifest,
+            exercise_native_guest_apis: false,
         }
     }
 
@@ -642,10 +657,56 @@ mod real_hyperv {
         helper_arguments: &[OsString],
         sandbox_timeout_seconds: u64,
     ) -> BoundedCommandOutput {
+        // Build the std-only helper as an independent, static-CRT fixture. Cargo's
+        // bin can be hard-linked into deps/ and can depend on VCRUNTIME140.dll,
+        // which a clean execution image need not contain. Neither should prevent
+        // these tests from reaching the behavior they are meant to verify.
+        let mut helper_copy = HostCanary::create();
+        helper_copy.owns_debug_symbols = true;
+        let mut compiler = Command::new("rustc");
+        compiler
+            .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/bin/foxhole_test_helper.rs"))
+            .args([
+                "--edition=2024",
+                "-O",
+                "-C",
+                "target-feature=+crt-static",
+                "-o",
+            ])
+            .arg(&helper_copy.path);
+        let built = run_bounded(compiler);
+        assert!(
+            built.status.success(),
+            "build self-contained Hyper-V fixture: {}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        // Keep live test evidence separate from the operator's default archive.
+        // Do not delete it: failed runs may need the normal recovery command.
+        let output = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            // Hyper-V adds long configuration filenames underneath this root.
+            .join(format!(
+                "hv-{:x}-{:x}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
         let mut command = Command::new(env!("CARGO_BIN_EXE_foxhole"));
+        if config.exercise_native_guest_apis {
+            command.args([
+                "--hv-profile",
+                "normal",
+                "--mitigation-profile",
+                "compatible",
+            ]);
+        }
         command
+            .arg("--output")
+            .arg(output)
             .arg("--path")
-            .arg(env!("CARGO_BIN_EXE_foxhole_test_helper"))
+            .arg(&helper_copy.path)
             .args(["--sandbox", "hyperv", "--hyperv-base-image"])
             .arg(&config.base_image)
             .arg("--hyperv-base-manifest")
@@ -660,6 +721,7 @@ mod real_hyperv {
     struct HostCanary {
         path: PathBuf,
         marker: String,
+        owns_debug_symbols: bool,
     }
 
     impl HostCanary {
@@ -680,7 +742,11 @@ mod real_hyperv {
                         file.write_all(marker.as_bytes())
                             .and_then(|()| file.sync_all())
                             .expect("write randomized host-only canary");
-                        return Self { path, marker };
+                        return Self {
+                            path,
+                            marker,
+                            owns_debug_symbols: false,
+                        };
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
                     Err(error) => panic!("create randomized host-only canary: {error}"),
@@ -693,6 +759,9 @@ mod real_hyperv {
     impl Drop for HostCanary {
         fn drop(&mut self) {
             let _ = fs::remove_file(&self.path);
+            if self.owns_debug_symbols {
+                let _ = fs::remove_file(self.path.with_extension("pdb"));
+            }
         }
     }
 

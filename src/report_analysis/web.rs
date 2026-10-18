@@ -1,16 +1,20 @@
-use super::model::{IocReport, NormalizedRun, VerdictReport};
+use super::model::{IocReport, NormalizedRun, VerdictReport, VirusTotalReport};
 use serde::Serialize;
 use std::io;
 use std::path::{Path, PathBuf};
 
 const STYLE: &str = include_str!("web_assets/style.css");
 const APPLICATION: &str = include_str!("web_assets/app.js");
+const NETWORK_TELEMETRY: &str = include_str!("web_assets/network-telemetry.js");
+const DETECTION_APPLICATION: &str = include_str!("web_assets/detection.js");
 
 #[derive(Debug, Serialize)]
 struct WebReportData<'a> {
+    stages: Vec<super::stages::StageResult>,
     normalized: &'a NormalizedRun,
     verdict: &'a VerdictReport,
     iocs: &'a IocReport,
+    virustotal: &'a VirusTotalReport,
 }
 
 pub fn write_web_report(
@@ -18,7 +22,18 @@ pub fn write_web_report(
     normalized: &NormalizedRun,
     verdict: &VerdictReport,
     iocs: &IocReport,
+    virustotal: &VirusTotalReport,
 ) -> io::Result<PathBuf> {
+    write_bytes(
+        run_root,
+        Path::new("web/assets/network-telemetry.js"),
+        NETWORK_TELEMETRY.as_bytes(),
+    )?;
+    write_bytes(
+        run_root,
+        Path::new("web/assets/detection.js"),
+        DETECTION_APPLICATION.as_bytes(),
+    )?;
     write_bytes(
         run_root,
         Path::new("web/assets/style.css"),
@@ -29,13 +44,16 @@ pub fn write_web_report(
         Path::new("web/assets/app.js"),
         APPLICATION.as_bytes(),
     )?;
-    let serialized = serde_json::to_string(&WebReportData {
+    let serialized = serde_json::to_string(&super::publication::public_value(&WebReportData {
+        stages: super::stages::summarize(normalized),
         normalized,
         verdict,
         iocs,
-    })
+        virustotal,
+    })?)
     .map_err(io::Error::other)?;
-    let report_script = format!("window.FOXHOLE_REPORT = {serialized};\n");
+    let json_literal = serde_json::to_string(&serialized).map_err(io::Error::other)?;
+    let report_script = format!("window.FOXHOLE_REPORT = JSON.parse({json_literal});\n");
     write_bytes(
         run_root,
         Path::new("web/data/report-data.js"),
@@ -64,6 +82,15 @@ struct Page {
 }
 
 const PAGES: &[Page] = &[
+    Page {
+        file: "detection.html",
+        id: "detection",
+        title: "Analysis stages",
+        eyebrow: "Coverage and provenance",
+        heading: "Static and packet analysis",
+        description: "Scanner findings describe evidence. Static capability does not prove runtime execution. Incomplete stages remain visible.",
+        content: r#"<div id="detection-stages"></div>"#,
+    },
     Page {
         file: "index.html",
         id: "overview",
@@ -127,6 +154,15 @@ const PAGES: &[Page] = &[
         description: "Deduplicated indicators with first-seen spelling, context, and complete provenance.",
         content: IOCS,
     },
+    Page {
+        file: "virustotal.html",
+        id: "virustotal",
+        title: "VirusTotal",
+        eyebrow: "External reputation",
+        heading: "VirusTotal",
+        description: "Latest VirusTotal detection ratios and per-engine results for the primary file and hashed files observed inside the VM.",
+        content: VIRUSTOTAL,
+    },
 ];
 
 fn render_page(page: &Page) -> String {
@@ -135,6 +171,7 @@ fn render_page(page: &Page) -> String {
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#1f2124">
@@ -143,6 +180,8 @@ fn render_page(page: &Page) -> String {
   <link rel="stylesheet" href="assets/style.css">
   <script defer src="data/report-data.js"></script>
   <script defer src="assets/app.js"></script>
+  <script defer src="assets/detection.js"></script>
+  <script defer src="assets/network-telemetry.js"></script>
 </head>
 <body data-page="{}">
   <a class="skip-link" href="#main-content">Skip to report</a>
@@ -156,10 +195,12 @@ fn render_page(page: &Page) -> String {
         <a data-nav="overview" href="index.html">Overview</a>
         <a data-nav="parameters" href="parameters.html">Run</a>
         <a data-nav="findings" href="findings.html">Findings</a>
+        <a data-nav="detection" href="detection.html">Analysis</a>
         <a data-nav="timeline" href="timeline.html">Timeline</a>
         <a data-nav="processes" href="processes.html">Processes</a>
         <a data-nav="network" href="network.html">Network</a>
         <a data-nav="iocs" href="iocs.html">IOCs</a>
+        <a data-nav="virustotal" href="virustotal.html">VirusTotal</a>
       </nav>
       <div class="report-context">
         <div class="target-chip"><span>Analyzed file</span><code id="target-file-name">loading</code></div>
@@ -231,6 +272,12 @@ const OVERVIEW: &str = r#"
   <article class="stat"><span>Validation</span><strong id="warning-count">—</strong><small>normalization warnings</small></article>
 </section>
 
+<section class="panel" aria-labelledby="stage-heading">
+  <div class="panel-heading"><h2 id="stage-heading">Execution and analysis status</h2></div>
+  <p class="panel-note">Target exit, evidence coverage and cleanup are independent. Completed does not mean benign or exhaustive.</p>
+  <div class="table-wrap"><table><thead><tr><th>Stage</th><th>Status</th><th>Target</th><th>Coverage notes</th></tr></thead><tbody id="stage-results"></tbody></table></div>
+</section>
+
 <section class="panel file-hash-panel" aria-labelledby="created-file-heading">
   <div class="panel-heading">
     <div><p class="section-kicker">Guest file evidence</p><h2 id="created-file-heading">Files created or downloaded inside the VM</h2></div>
@@ -256,6 +303,7 @@ const OVERVIEW: &str = r#"
   <section class="panel" aria-labelledby="coverage-heading">
     <div class="panel-heading"><div><p class="section-kicker">Collector status</p><h2 id="coverage-heading">Telemetry coverage</h2></div></div>
     <div id="coverage-grid" class="coverage-grid"></div>
+    <div id="capture-health"></div>
   </section>
   <section class="panel" aria-labelledby="top-findings-heading">
     <div class="panel-heading"><div><p class="section-kicker">Rule output</p><h2 id="top-findings-heading">Findings</h2></div><a href="findings.html">Evidence detail →</a></div>
@@ -312,6 +360,11 @@ const FINDINGS: &str = r#"
 <section class="filter-row" aria-label="Finding filters">
   <label for="finding-severity">Severity <select id="finding-severity"><option value="all">All severities</option><option value="malicious">Malicious</option><option value="suspicious">Suspicious</option><option value="informational">Informational</option></select></label>
   <label for="finding-search">Search <input id="finding-search" type="search" placeholder="Rule, process, or evidence"></label>
+  <label>Source <select id="finding-source"><option value="all">All sources</option></select></label>
+  <label>File SHA-256 <input id="finding-file" type="search"></label>
+  <label>Namespace <input id="finding-namespace" type="search"></label>
+  <label>ATT&amp;CK <input id="finding-attack" type="search"></label>
+  <label>Minimum confidence <select id="finding-confidence"><option value="0">Any</option><option value="0.5">50%</option><option value="0.8">80%</option><option value="0.95">95%</option></select></label>
   <span id="finding-result-count" class="result-count" aria-live="polite"></span>
 </section>
 <div id="findings-container" class="findings-container"></div>
@@ -359,6 +412,22 @@ const PROCESSES: &str = r#"
 "#;
 
 const NETWORK: &str = r#"
+<section class="panel" aria-labelledby="capture-heading">
+  <div class="panel-heading"><div><p class="section-kicker">Observation limits</p><h2 id="capture-heading">Network capture health</h2></div></div>
+  <div id="capture-health"></div>
+</section>
+<section class="panel" aria-labelledby="wfp-heading">
+  <div class="panel-heading"><div><p class="section-kicker">Windows Filtering Platform</p><h2 id="wfp-heading">Network attempts and audit events</h2></div></div>
+  <p class="panel-note">Guest-wide audit evidence includes attempts that could not be attributed to the target. Correlation confidence and reasons are shown for each event.</p>
+  <div class="filter-bar">
+    <label for="wfp-search">Search <input id="wfp-search" type="search" placeholder="Event ID, action, endpoint, PID, image or reason"></label>
+    <label for="wfp-attribution">Attribution <select id="wfp-attribution"><option value="all">All events</option><option value="target">Target tree (inferred)</option><option value="unattributed">Unattributed</option></select></label>
+    <span id="wfp-count" class="result-count" aria-live="polite"></span>
+  </div>
+  <div class="table-wrap"><table><thead><tr><th>UTC timestamp / elapsed</th><th>Event / action</th><th>Protocol</th><th>PID / image</th><th>Local endpoint</th><th>Remote endpoint</th><th>Attribution</th><th>Source / raw event</th></tr></thead><tbody id="wfp-table"></tbody></table></div>
+  <div class="filter-bar"><button id="wfp-previous" type="button">Previous</button><span id="wfp-page" aria-live="polite"></span><button id="wfp-next" type="button">Next</button></div>
+</section>
+
 <section class="stat-grid" aria-label="Network summary">
   <article class="stat"><span>Events</span><strong id="network-count">—</strong><small>normalized observations</small></article>
   <article class="stat"><span>Remote endpoints</span><strong id="remote-endpoint-count">—</strong><small>unique address and port pairs</small></article>
@@ -404,6 +473,7 @@ const IOCS: &str = r#"
   <label for="ioc-file-type">File type <select id="ioc-file-type"><option value="all">All file types</option></select></label>
   <label for="ioc-event-type">Event type <select id="ioc-event-type"><option value="all">All event types</option></select></label>
   <label for="ioc-scope">Evidence scope <select id="ioc-scope"><option value="all">All indicators</option><option value="observable">Observables only</option><option value="contextual">Contextual only</option></select></label>
+  <label for="ioc-source-category">Source category <select id="ioc-source-category"><option value="all">All sources</option><option value="static">Static</option><option value="dynamic">Dynamic</option><option value="packet">Packet</option><option value="rule-derived">Rule-derived</option><option value="analyst-supplied">Analyst-supplied</option></select></label>
   <span id="ioc-result-count" class="result-count" aria-live="polite"></span>
   <p class="filter-help"><strong>Contextual indicators</strong> are common or likely benign values retained to show the full evidence trail. Use “Observables only” to focus on values that may warrant investigation.</p>
 </section>
@@ -417,9 +487,88 @@ const IOCS: &str = r#"
 </section>
 "#;
 
+const VIRUSTOTAL: &str = r#"
+<section class="vt-summary" aria-labelledby="vt-primary-heading">
+  <div class="vt-section-heading">
+    <div><p class="section-kicker">Primary file</p><h2 id="vt-primary-heading">Main executed file</h2></div>
+    <span id="vt-report-status" class="context-label">—</span>
+  </div>
+  <div id="vt-primary-file" class="vt-file-list"></div>
+</section>
+
+<section class="vt-summary" aria-labelledby="vt-observed-heading">
+  <div class="vt-section-heading">
+    <div><p class="section-kicker">Guest file evidence</p><h2 id="vt-observed-heading">Other created or downloaded files</h2></div>
+    <span id="vt-observed-count" class="result-count">—</span>
+  </div>
+  <div id="vt-observed-files" class="vt-file-list"></div>
+</section>
+
+<section id="vt-warning-panel" class="panel" aria-labelledby="vt-warning-heading" hidden>
+  <div class="panel-heading"><div><p class="section-kicker">Lookup transparency</p><h2 id="vt-warning-heading">VirusTotal notices</h2></div></div>
+  <ul id="vt-warnings" class="warning-list"></ul>
+</section>
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generated_html_bundle_retains_capture_health_and_unattributed_wfp_evidence() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/detection/web-data.json"))
+                .unwrap();
+        let mut normalized: NormalizedRun =
+            serde_json::from_value(fixture["normalized"].clone()).unwrap();
+        let verdict: VerdictReport = serde_json::from_value(fixture["verdict"].clone()).unwrap();
+        let iocs: IocReport = serde_json::from_value(fixture["iocs"].clone()).unwrap();
+        let virustotal = super::super::virustotal::not_queried(&normalized, "offline fixture");
+        normalized.capture_health = vec![crate::structs::CaptureHealth {
+            channel: "host_ndis".into(),
+            requested: true,
+            started: true,
+            stopped: true,
+            byte_limit: Some(134217728),
+            captured_packets: Some(12),
+            truncated: true,
+            ..Default::default()
+        }];
+        normalized.network_attempts = vec![
+            serde_json::json!({"event_id":5157,"action":"connection_blocked",
+            "pid":null,"time_utc":"2026-09-08T08:00:00Z","correlation":{"target":false,"confidence":"none","reason":"PID unavailable"}}),
+        ];
+        let root = std::env::temp_dir().join(format!("foxhole-network-web-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        write_web_report(&root, &normalized, &verdict, &iocs, &virustotal).unwrap();
+        let script = std::fs::read_to_string(root.join("web/data/report-data.js")).unwrap();
+        let json: String = serde_json::from_str(
+            script
+                .strip_prefix("window.FOXHOLE_REPORT = JSON.parse(")
+                .unwrap()
+                .strip_suffix(");\n")
+                .unwrap(),
+        )
+        .unwrap();
+        let data: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            data["normalized"]["capture_health"][0]["captured_packets"],
+            12
+        );
+        assert!(data["normalized"]["capture_health"][0]["dropped_packets"].is_null());
+        assert_eq!(data["normalized"]["network_attempts"][0]["event_id"], 5157);
+        assert_eq!(
+            data["normalized"]["network_attempts"][0]["correlation"]["target"],
+            false
+        );
+        for page in ["index.html", "network.html"] {
+            let html = std::fs::read_to_string(root.join("web").join(page)).unwrap();
+            assert!(html.contains("assets/network-telemetry.js"));
+            assert!(html.contains("id=\"capture-health\""));
+        }
+        assert!(root.join("web/assets/network-telemetry.js").is_file());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn generated_pages_include_target_identity_and_network_navigation() {
@@ -428,6 +577,7 @@ mod tests {
             assert!(html.contains("id=\"target-file-name\""));
             assert!(html.contains("data-nav=\"parameters\" href=\"parameters.html\""));
             assert!(html.contains("data-nav=\"network\" href=\"network.html\""));
+            assert!(html.contains("data-nav=\"virustotal\" href=\"virustotal.html\""));
         }
     }
 
@@ -521,5 +671,26 @@ mod tests {
         assert!(APPLICATION.contains("function renderIocGroups(indicators)"));
         assert!(APPLICATION.contains("function indicatorFileTypes(indicator)"));
         assert!(APPLICATION.contains("function makeCopyableLabel(element, value, title)"));
+    }
+
+    #[test]
+    fn virustotal_page_ships_primary_and_observed_file_sections() {
+        let page = PAGES
+            .iter()
+            .find(|page| page.id == "virustotal")
+            .expect("VirusTotal page");
+        let html = render_page(page);
+        for element in [
+            "vt-report-status",
+            "vt-primary-file",
+            "vt-observed-count",
+            "vt-observed-files",
+            "vt-warning-panel",
+        ] {
+            assert!(html.contains(&format!("id=\"{element}\"")));
+        }
+        assert!(APPLICATION.contains("virustotal: renderVirusTotal"));
+        assert!(APPLICATION.contains("function renderVirusTotal()"));
+        assert!(APPLICATION.contains("function renderVirusTotalFile(file)"));
     }
 }

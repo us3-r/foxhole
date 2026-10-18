@@ -1,9 +1,11 @@
 mod backend;
 mod base_image;
 mod capability;
+mod capture;
 mod cleanup;
 mod data_disk;
 mod disk;
+pub mod doctor;
 pub mod guest_protocol;
 mod network;
 mod powershell;

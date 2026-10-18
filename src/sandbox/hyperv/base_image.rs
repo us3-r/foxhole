@@ -166,10 +166,10 @@ pub(crate) fn validate(
             error,
         )
     })?;
-    println!(
+    crate::progress::debug(format_args!(
         "[hyperv/base_image debug] opening and pinning base image (limit={} bytes)",
         config.maximum_image_bytes
-    );
+    ));
     let mut pin = host_file::open_pinned_input(&config.image_path, config.maximum_image_bytes)
         .map_err(|error| {
             SandboxError::with_source(
@@ -195,10 +195,10 @@ pub(crate) fn validate(
             error,
         )
     })?;
-    println!(
+    crate::progress::debug(format_args!(
         "[hyperv/base_image debug] hashing base image ({} bytes)",
         pin.len
-    );
+    ));
     let pinned_sha256 = hash_pinned_file(&mut pin.file, pin.len).map_err(|error| {
         SandboxError::with_source(
             "hyperv_base_image",
@@ -207,7 +207,9 @@ pub(crate) fn validate(
         )
     })?;
 
-    println!("[hyperv/base_image debug] reading and validating manifest");
+    crate::progress::debug(format_args!(
+        "[hyperv/base_image debug] reading and validating manifest"
+    ));
     let mut manifest_pin = host_file::open_pinned_input(&config.manifest_path, MAX_MANIFEST_BYTES)
         .map_err(|error| {
             SandboxError::with_source(
@@ -258,12 +260,14 @@ pub(crate) fn validate(
     }
 
     // Inspect only after the exact file and every directory component have been pinned.
-    println!(
+    crate::progress::debug(format_args!(
         "[hyperv/base_image debug] invoking Hyper-V VHD inspection for path: {}",
         canonical_image.display()
-    );
+    ));
     let probe = inspect(executor, &canonical_image)?;
-    println!("[hyperv/base_image debug] validating Hyper-V VHD inspection result");
+    crate::progress::debug(format_args!(
+        "[hyperv/base_image debug] validating Hyper-V VHD inspection result"
+    ));
     validate_probe(
         &canonical_image,
         &manifest,
@@ -444,7 +448,7 @@ fn validate_probe(
         && probe.sha256.eq_ignore_ascii_case(&manifest.sha256)
         && probe.sha256.eq_ignore_ascii_case(pinned_sha256);
     if !valid_geometry {
-        println!(
+        crate::progress::debug(format_args!(
             "[hyperv/base_image debug] probe mismatch: valid={} format={} type={} attached={} parent_present={} size={} sector={} probe_hash_match_manifest={} probe_hash_match_pinned={}",
             probe.valid,
             probe.vhd_format,
@@ -455,7 +459,7 @@ fn validate_probe(
             probe.logical_sector_size,
             probe.sha256.eq_ignore_ascii_case(&manifest.sha256),
             probe.sha256.eq_ignore_ascii_case(pinned_sha256),
-        );
+        ));
         return Err(SandboxError::new(
             "hyperv_base_image",
             "base image failed VHDX type, attachment, parent, geometry, or hash validation",

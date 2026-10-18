@@ -1,0 +1,12 @@
+rule:
+  meta:
+    name: import native process creation function
+    namespace: host-interaction/process/create
+    authors: [Foxhole]
+    scopes:
+      static: file
+      dynamic: unsupported
+  features:
+    - or:
+      - import: kernel32.CreateProcessW
+      - import: kernel32.CreateProcessA

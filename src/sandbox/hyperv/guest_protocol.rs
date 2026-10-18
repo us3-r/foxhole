@@ -32,6 +32,8 @@ pub const MAX_WARNING_BYTES: usize = 4096;
 pub const MAX_ARTIFACTS: usize = 4096;
 pub const MAX_ARTIFACT_BYTES: u64 = 128 * 1024 * 1024;
 pub const MAX_TOTAL_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
+/// Shared publication/collection roots, including bounded offline scanner JSON.
+pub const ARTIFACT_ROOT_NAMES: [&str; 3] = ["screenshots", "extracted-files", "detection"];
 
 static TEMPORARY_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -163,6 +165,8 @@ impl Default for CaptureOptions {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct GuestRunRequest {
+    #[serde(default)]
+    pub detection: crate::detection::DetectionConfig,
     pub protocol_version: u32,
     pub run_id: String,
     /// Slash-separated path relative to the run-data root, normally `input/target.exe`.
@@ -199,6 +203,9 @@ pub struct GuestRunRequest {
 
 impl GuestRunRequest {
     pub fn validate(&self) -> ProtocolResult<()> {
+        self.detection
+            .validate()
+            .map_err(|message| ProtocolError::new("invalid_detection_config", message))?;
         validate_protocol_version(self.protocol_version)?;
         validate_run_id(&self.run_id)?;
         validate_relative_wire_path(&self.target)?;
@@ -680,6 +687,8 @@ impl GuestNetworkAttestation {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct GuestResultEnvelope<T> {
+    #[serde(default)]
+    pub detection_config: crate::detection::DetectionConfig,
     pub protocol_version: u32,
     pub run_id: String,
     pub agent_version: String,
@@ -1248,6 +1257,7 @@ mod tests {
 
     fn request() -> GuestRunRequest {
         GuestRunRequest {
+            detection: Default::default(),
             protocol_version: PROTOCOL_VERSION,
             run_id: "01234567-abcd-4321-abcd-0123456789ab".to_string(),
             target: "input/target.exe".to_string(),
@@ -1503,6 +1513,7 @@ mod tests {
             warnings: Vec::new(),
         };
         let mut envelope = GuestResultEnvelope {
+            detection_config: Default::default(),
             protocol_version: PROTOCOL_VERSION,
             run_id: request().run_id,
             agent_version: "0.2.0".to_string(),

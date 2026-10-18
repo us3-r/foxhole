@@ -1,0 +1,8 @@
+# Install/build in a trusted staging environment; copy the complete runtime into the guest.
+# The worker fixes capa to the vivisect backend. No decompiler is selected or invoked.
+yara-python==4.5.2
+pefile==2024.8.26
+flare-capa==9.2.1
+lief==0.16.6
+py-tlsh==4.5.0
+cryptography==46.0.5

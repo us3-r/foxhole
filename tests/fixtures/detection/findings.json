@@ -1,0 +1,181 @@
+[
+  {
+    "details": {
+      "version": "1",
+      "source": "behavioral",
+      "namespace": "foxhole/capability",
+      "file_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+      "attack": [],
+      "required_events": [
+        "static_capability",
+        "mapped_runtime_event"
+      ],
+      "window_ms": 120000,
+      "association": "direct",
+      "false_positive_guidance": "Capabilities describe possible code behavior; missing telemetry is not evidence of safety.",
+      "score_group": ""
+    },
+    "rule_id": "FH-B018:match:ff015f71b3e2e3dc632ad886a324e642",
+    "severity": "informational",
+    "title": "Static capability not confirmed by available telemetry",
+    "explanation": "No matching runtime evidence was available. This does not establish that the capability was absent, contradicted, or safe.",
+    "evidence": [
+      {
+        "evidence_id": "artifact:capa",
+        "kind": "static_capability",
+        "pid": 0,
+        "process_image": "",
+        "parent_pid": null,
+        "observed_at_ms": 0,
+        "source_artifact": "",
+        "exact_value": "import harmless exit function",
+        "inferred": false
+      },
+      {
+        "evidence_id": "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+        "kind": "static_capability",
+        "pid": 0,
+        "process_image": "",
+        "parent_pid": null,
+        "observed_at_ms": 0,
+        "source_artifact": "",
+        "exact_value": "import harmless exit function",
+        "inferred": false
+      }
+    ],
+    "confidence": 0.4,
+    "score_contribution": 0
+  },
+  {
+    "details": {
+      "version": "1",
+      "source": "capa",
+      "namespace": "foxhole/test",
+      "file_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+      "attack": [],
+      "required_events": [],
+      "window_ms": null,
+      "association": "static",
+      "false_positive_guidance": "A rule or capability match is context, not proof of malicious execution.",
+      "score_group": ""
+    },
+    "rule_id": "capa:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf:match:ff015f71b3e2e3dc632ad886a324e642",
+    "severity": "informational",
+    "title": "import harmless exit function",
+    "explanation": "Static capability; this does not establish that the action executed.",
+    "evidence": [
+      {
+        "evidence_id": "artifact:capa",
+        "kind": "scanner_artifact",
+        "pid": 0,
+        "process_image": "",
+        "parent_pid": null,
+        "observed_at_ms": 0,
+        "source_artifact": "detection/capa.json",
+        "exact_value": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf import harmless exit function",
+        "inferred": false
+      },
+      {
+        "evidence_id": "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+        "kind": "scanner_artifact",
+        "pid": 0,
+        "process_image": "",
+        "parent_pid": null,
+        "observed_at_ms": 0,
+        "source_artifact": "detection/capa.json",
+        "exact_value": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf import harmless exit function",
+        "inferred": false
+      }
+    ],
+    "confidence": 0.8,
+    "score_contribution": 0
+  },
+  {
+    "details": {
+      "version": "1",
+      "source": "network",
+      "namespace": "foxhole/packet",
+      "file_sha256": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+      "attack": [],
+      "required_events": [],
+      "window_ms": null,
+      "association": "static",
+      "false_positive_guidance": "A rule or capability match is context, not proof of malicious execution.",
+      "score_group": ""
+    },
+    "rule_id": "network:43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64:match:a77aa1c07d2a40ce7a5aeef95e513457:2",
+    "severity": "informational",
+    "title": "foxhole_test_domain",
+    "explanation": "Deterministic scanner finding; no independent verdict score.",
+    "evidence": [
+      {
+        "evidence_id": "artifact:capture",
+        "kind": "scanner_artifact",
+        "pid": 0,
+        "process_image": "",
+        "parent_pid": null,
+        "observed_at_ms": 0,
+        "source_artifact": "detection/network.json",
+        "exact_value": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64 foxhole_test_domain",
+        "inferred": false
+      },
+      {
+        "evidence_id": "artifact:network",
+        "kind": "scanner_artifact",
+        "pid": 0,
+        "process_image": "",
+        "parent_pid": null,
+        "observed_at_ms": 0,
+        "source_artifact": "detection/network.json",
+        "exact_value": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64 foxhole_test_domain",
+        "inferred": false
+      }
+    ],
+    "confidence": 0.8,
+    "score_contribution": 0
+  },
+  {
+    "details": {
+      "version": "1",
+      "source": "yara",
+      "namespace": "foxhole",
+      "file_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+      "attack": [],
+      "required_events": [],
+      "window_ms": null,
+      "association": "static",
+      "false_positive_guidance": "A rule or capability match is context, not proof of malicious execution.",
+      "score_group": ""
+    },
+    "rule_id": "yara:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf:match:e13f7cb1068a5bbca4bad7e00254e481",
+    "severity": "informational",
+    "title": "harmless_marker",
+    "explanation": "Deterministic scanner finding; no independent verdict score.",
+    "evidence": [
+      {
+        "evidence_id": "artifact:yara",
+        "kind": "scanner_artifact",
+        "pid": 0,
+        "process_image": "",
+        "parent_pid": null,
+        "observed_at_ms": 0,
+        "source_artifact": "detection/yara.json",
+        "exact_value": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf harmless_marker",
+        "inferred": false
+      },
+      {
+        "evidence_id": "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+        "kind": "scanner_artifact",
+        "pid": 0,
+        "process_image": "",
+        "parent_pid": null,
+        "observed_at_ms": 0,
+        "source_artifact": "detection/yara.json",
+        "exact_value": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf harmless_marker",
+        "inferred": false
+      }
+    ],
+    "confidence": 0.8,
+    "score_contribution": 0
+  }
+]

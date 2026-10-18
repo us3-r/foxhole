@@ -5,9 +5,9 @@ use crate::monitor::ObservationAvailability;
 use crate::request::RunLayout;
 use crate::runner::{AgentError, AgentResult};
 use foxhole::sandbox::hyperv::guest_protocol::{
-    ArtifactManifestEntry, GuestError, GuestNetworkAttestation, GuestResultEnvelope,
-    GuestRunRequest, GuestTerminalOutcome, MAX_ARTIFACT_BYTES, MAX_RESULT_BYTES, PROTOCOL_VERSION,
-    wire_path_to_native, write_atomic_json_new,
+    ARTIFACT_ROOT_NAMES, ArtifactManifestEntry, GuestError, GuestNetworkAttestation,
+    GuestResultEnvelope, GuestRunRequest, GuestTerminalOutcome, MAX_ARTIFACT_BYTES,
+    MAX_RESULT_BYTES, PROTOCOL_VERSION, wire_path_to_native, write_atomic_json_new,
 };
 use foxhole::structs::SandboxRunResult;
 use std::collections::HashSet;
@@ -39,6 +39,7 @@ pub fn completed(
         GuestTerminalOutcome::Completed
     };
     GuestResultEnvelope {
+        detection_config: request.detection.public(),
         protocol_version: PROTOCOL_VERSION,
         run_id: request.run_id.clone(),
         agent_version: agent_version.to_string(),
@@ -61,6 +62,7 @@ pub fn failed(
     network_attestation: Option<GuestNetworkAttestation>,
 ) -> GuestResultEnvelope<SandboxRunResult> {
     GuestResultEnvelope {
+        detection_config: request.detection.public(),
         protocol_version: PROTOCOL_VERSION,
         run_id: request.run_id.clone(),
         agent_version: agent_version.to_string(),
@@ -82,6 +84,7 @@ pub fn cancelled(
     network_attestation: Option<GuestNetworkAttestation>,
 ) -> GuestResultEnvelope<SandboxRunResult> {
     GuestResultEnvelope {
+        detection_config: request.detection.public(),
         protocol_version: PROTOCOL_VERSION,
         run_id: request.run_id.clone(),
         agent_version: agent_version.to_string(),
@@ -107,8 +110,9 @@ pub fn write(
             format!("validate result envelope before publication: {error}"),
         )
     })?;
-    create_output_directory(&layout.output.join("screenshots"), true)?;
-    create_output_directory(&layout.output.join("extracted-files"), true)?;
+    for root_name in ARTIFACT_ROOT_NAMES {
+        create_output_directory(&layout.output.join(root_name), true)?;
+    }
     validate_artifact_files(layout, &envelope.artifacts)?;
 
     // Publish the auxiliary B10 output set first. result.json is deliberately last, so a
@@ -186,6 +190,18 @@ pub fn prepare_failed_publication(layout: &RunLayout) -> AgentResult<()> {
             "telemetry-events.json",
         ],
     )?;
+    // Four scanners, each with a hard ceiling of 64 files. Only broker-generated
+    // names may be discarded; unexpected content still fails closed.
+    let detection_names = (0..256)
+        .flat_map(|ordinal| {
+            ["yara", "pe", "capa", "network"].map(|scanner| format!("{ordinal:04}-{scanner}.json"))
+        })
+        .collect::<Vec<_>>();
+    let detection_names = detection_names
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    clear_known_artifact_directory(&layout.output.join("detection"), &detection_names)?;
     Ok(())
 }
 
@@ -364,8 +380,10 @@ fn validate_artifact_files(
 ) -> AgentResult<()> {
     let mut expected = HashSet::new();
     for artifact in artifacts {
-        if !(artifact.relative_path.starts_with("extracted-files/")
-            || artifact.relative_path.starts_with("screenshots/"))
+        if !artifact
+            .relative_path
+            .split_once('/')
+            .is_some_and(|(root, _)| ARTIFACT_ROOT_NAMES.contains(&root))
         {
             return Err(AgentError::new(
                 "result",
@@ -424,7 +442,7 @@ fn validate_artifact_files(
     }
 
     let mut actual = HashSet::new();
-    for root_name in ["screenshots", "extracted-files"] {
+    for root_name in ARTIFACT_ROOT_NAMES {
         collect_artifact_paths(
             &layout.output,
             &layout.output.join(root_name),
@@ -588,6 +606,7 @@ mod tests {
 
     fn empty_execution() -> SandboxRunResult {
         SandboxRunResult {
+            capture_health: Vec::new(),
             backend: "restricted_process".to_string(),
             network_policy: "deny_all".to_string(),
             integrity_level: "low".to_string(),
@@ -640,7 +659,12 @@ mod tests {
             status: root.join("status"),
         };
         let coverage = captured();
+        let scanner_path = layout.output.join("detection/0000-yara.json");
+        fs::create_dir(layout.output.join("detection")).unwrap();
+        let scanner_bytes = b"{\"status\":\"completed\"}";
+        fs::write(&scanner_path, scanner_bytes).unwrap();
         let envelope = GuestResultEnvelope {
+            detection_config: Default::default(),
             protocol_version: PROTOCOL_VERSION,
             run_id: "0123456789abcdef".to_string(),
             agent_version: "0.2.0".to_string(),
@@ -655,7 +679,12 @@ mod tests {
                 filesystem: coverage.clone(),
                 registry: coverage,
             },
-            artifacts: Vec::new(),
+            artifacts: vec![ArtifactManifestEntry {
+                relative_path: "detection/0000-yara.json".into(),
+                size_bytes: scanner_bytes.len() as u64,
+                sha256: sha256_file(&scanner_path, MAX_ARTIFACT_BYTES).unwrap(),
+                kind: "detection_yara".into(),
+            }],
             warnings: vec!["warning".to_string()],
             network_attestation: None,
             error: None,
@@ -674,9 +703,24 @@ mod tests {
         ] {
             assert!(layout.output.join(relative).is_file(), "{relative}");
         }
-        for relative in ["screenshots", "extracted-files"] {
+        for relative in ARTIFACT_ROOT_NAMES {
             assert!(layout.output.join(relative).is_dir(), "{relative}");
         }
+        fs::write(&scanner_path, b"tampered").unwrap();
+        assert_eq!(
+            validate_artifact_files(&layout, &envelope.artifacts)
+                .unwrap_err()
+                .code,
+            "artifact_size_mismatch"
+        );
+        fs::write(&scanner_path, scanner_bytes).unwrap();
+        fs::write(layout.output.join("detection/unmanifested.json"), b"{}").unwrap();
+        assert_eq!(
+            validate_artifact_files(&layout, &envelope.artifacts)
+                .unwrap_err()
+                .code,
+            "artifact_manifest_mismatch"
+        );
         assert!(write(&layout, &envelope).is_err());
         fs::remove_dir_all(root).unwrap();
     }
@@ -701,6 +745,7 @@ mod tests {
         };
         let coverage = captured();
         let envelope = GuestResultEnvelope {
+            detection_config: Default::default(),
             protocol_version: PROTOCOL_VERSION,
             run_id: "0123456789abcdef".to_string(),
             agent_version: "0.2.0".to_string(),
@@ -723,5 +768,40 @@ mod tests {
         let error = write(&layout, &envelope).unwrap_err();
         assert_eq!(error.code, "artifact_manifest_mismatch");
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_publication_clears_only_known_scanner_output_names() {
+        let root = std::env::temp_dir().join(format!(
+            "foxhole-failed-scanner-publication-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let layout = RunLayout {
+            request: root.join("request.json"),
+            input: root.join("input"),
+            output: root.join("output"),
+            status: root.join("status"),
+            root: root.clone(),
+        };
+        let directory = layout.output.join("detection");
+        fs::create_dir_all(&directory).unwrap();
+        let unexpected = directory.join("unexpected.json");
+        fs::write(&unexpected, b"retain").unwrap();
+        assert_eq!(
+            prepare_failed_publication(&layout).unwrap_err().code,
+            "unknown_failed_artifact"
+        );
+        assert_eq!(fs::read(&unexpected).unwrap(), b"retain");
+        fs::remove_file(unexpected).unwrap();
+        fs::write(directory.join("0000-yara.json"), b"{}").unwrap();
+        fs::write(directory.join("0255-network.json"), b"{}").unwrap();
+        prepare_failed_publication(&layout).unwrap();
+        assert!(!directory.exists());
+        fs::remove_dir(layout.output).unwrap();
+        fs::remove_dir(root).unwrap();
     }
 }

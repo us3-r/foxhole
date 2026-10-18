@@ -6,7 +6,7 @@ use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const REPORT_SCHEMA_VERSION: &str = "2.2";
+pub const REPORT_SCHEMA_VERSION: &str = "2.3";
 
 #[derive(Debug, Serialize)]
 pub struct AnalysisReport {
@@ -155,6 +155,21 @@ impl AnalysisReport {
                 .unwrap_or_else(|| "<redacted>".to_string())
         });
         let is_hyperv = context.selected_backend == BackendKind::HyperV;
+        if is_hyperv
+            && !result
+                .capture_health
+                .iter()
+                .any(|h| h.channel == "guest_wfp")
+        {
+            result.capture_health.push(crate::structs::CaptureHealth {
+                channel: "guest_wfp".into(), requested: !request.dry_run,
+                warnings: vec!["WFP capture-health metadata unavailable from guest; network attempt coverage cannot be confirmed.".into()],
+                ..crate::structs::CaptureHealth::default()
+            });
+        }
+        for health in &result.capture_health {
+            result.monitor_warnings.extend(health.coverage_warnings());
+        }
         let mut capabilities = Vec::new();
         if !is_hyperv
             && cfg!(target_os = "windows")
@@ -213,7 +228,7 @@ impl AnalysisReport {
                         "Guest-produced status, results, and artifacts are untrusted and are accepted only after bounded validation, request/result hash binding, and host-side archival hashes.".to_string(),
                         "The run-data VHDX is used for pre-boot input and post-shutdown output; the current transport provides VM health but not live guest READY/status visibility.".to_string(),
                         "Controlled Hyper-V networking is IPv4-only; IPv6 is disabled and independently attested rather than permitted without equivalent containment.".to_string(),
-                        "Guest telemetry is bounded and combines Sysmon, Windows Filtering Platform auditing, and Packet Monitor artifacts; it cannot expose plaintext headers or payloads protected by TLS.".to_string(),
+                        "Network telemetry is never complete: encrypted traffic content, events lost before instrumentation, capture byte/event bounds, and guest-admin tampering can prevent complete observation. Null loss counters mean unknown, not zero.".to_string(),
                         "A guest-administrator target can tamper with in-guest telemetry; the Hyper-V host boundary and host-side artifact validation remain authoritative.".to_string(),
                     ],
                 )
@@ -352,6 +367,7 @@ mod tests {
     #[test]
     fn report_has_a_stable_schema_version() {
         let result = SandboxRunResult {
+            capture_health: Vec::new(),
             backend: "restricted_process".into(),
             network_policy: "deny_all".into(),
             integrity_level: "low".into(),
@@ -428,7 +444,7 @@ mod tests {
         };
 
         let value = serde_json::to_value(report).expect("report should serialize");
-        assert_eq!(value["schema_version"], "2.2");
+        assert_eq!(value["schema_version"], "2.3");
         assert_eq!(value["target"]["sha256"], "00".repeat(32));
         assert_eq!(value["result"]["pid"], 42);
         assert_eq!(value["result"]["stdout"], "");
@@ -444,6 +460,7 @@ mod tests {
         ));
         std::fs::write(&target, b"sample").expect("write target");
         let result = SandboxRunResult {
+            capture_health: Vec::new(),
             backend: "restricted_process".into(),
             network_policy: "deny_all".into(),
             integrity_level: "low".into(),
@@ -521,6 +538,7 @@ mod tests {
 
     fn empty_result(policy: &str) -> SandboxRunResult {
         SandboxRunResult {
+            capture_health: Vec::new(),
             backend: "restricted_process".into(),
             network_policy: policy.into(),
             integrity_level: "low".into(),
@@ -665,6 +683,23 @@ mod tests {
         )
         .unwrap();
 
+        let limitations = report.limitations.join(" ");
+        for phrase in [
+            "never complete",
+            "encrypted traffic content",
+            "events lost before instrumentation",
+            "capture byte/event bounds",
+            "guest-admin tampering",
+        ] {
+            assert!(limitations.contains(phrase));
+        }
+        assert!(
+            report
+                .result
+                .monitor_warnings
+                .iter()
+                .any(|w| w.contains("WFP capture-health metadata unavailable"))
+        );
         assert_eq!(report.sandbox.provider, "hyper-v-disposable-vm");
         assert!(report.sandbox.security_boundary);
         assert!(!report.sandbox.kernel_shared_with_host);
@@ -691,6 +726,60 @@ mod tests {
                 .iter()
                 .any(|limit| limit.contains("virtual CPUs"))
         );
+    }
+
+    #[test]
+    fn capture_health_roundtrips_and_report_surfaces_incomplete_channels() {
+        let mut result = empty_result("deny_all");
+        result.capture_health = vec![
+            crate::structs::CaptureHealth {
+                channel: "guest_wfp".into(),
+                requested: true,
+                started: true,
+                stopped: true,
+                byte_limit: Some(8388608),
+                event_limit: Some(10000),
+                raw_event_limit: Some(5000),
+                captured_bytes: Some(2048),
+                captured_events: Some(10000),
+                retained_events: Some(5000),
+                captured_packets: Some(12),
+                truncated: true,
+                dropped_events: Some(3),
+                provider_errors: vec!["audit interruption".into()],
+                ..Default::default()
+            },
+            crate::structs::CaptureHealth {
+                channel: "host_ndis".into(),
+                requested: true,
+                ..Default::default()
+            },
+        ];
+        let wire = serde_json::to_value(&result).unwrap();
+        let decoded: SandboxRunResult = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(decoded.capture_health, result.capture_health);
+        let health = &wire["capture_health"][0];
+        assert_eq!(health["event_limit"], 10000);
+        assert_eq!(health["byte_limit"], 8388608);
+        assert_eq!(health["retained_events"], 5000);
+        assert!(health["dropped_packets"].is_null());
+        assert_eq!(health["captured_packets"], 12);
+        let report = AnalysisReport::new(
+            Path::new("sample.exe"),
+            1,
+            "00".repeat(32),
+            None,
+            &SandboxRequest::restricted("sample.exe"),
+            result,
+        )
+        .unwrap();
+        let warnings = report.result.monitor_warnings.join("; ");
+        assert!(warnings.contains("truncated"));
+        assert!(warnings.contains("host_ndis capture unavailable"));
+        assert!(warnings.contains("lost events or packets"));
+        assert!(warnings.contains("provider error"));
+        let value = serde_json::to_value(report).unwrap();
+        assert_eq!(value["result"]["capture_health"][0]["stopped"], true);
     }
 
     #[test]

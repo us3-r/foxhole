@@ -1,0 +1,37 @@
+[
+  {
+    "method": "ascii",
+    "offset": 376,
+    "value": ".text"
+  },
+  {
+    "method": "ascii",
+    "offset": 914,
+    "value": "ExitProcess"
+  },
+  {
+    "method": "ascii",
+    "offset": 1024,
+    "value": "FOXHOLE_HARMLESS_TEST"
+  },
+  {
+    "method": "ascii",
+    "offset": 864,
+    "value": "KERNEL32.dll"
+  },
+  {
+    "method": "ascii",
+    "offset": 1074,
+    "value": "aHR0cHM6Ly9leGFtcGxlLm9yZy8="
+  },
+  {
+    "method": "ascii",
+    "offset": 1046,
+    "value": "https://example.com/fixture"
+  },
+  {
+    "method": "base64",
+    "offset": 1074,
+    "value": "https://example.org/"
+  }
+]

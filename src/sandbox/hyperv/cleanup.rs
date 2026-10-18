@@ -127,6 +127,7 @@ impl CleanupJournal {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CleanupOutcome {
+    pub capture_health: Option<crate::structs::CaptureHealth>,
     pub attempted: bool,
     pub success: bool,
     pub warnings: Vec<String>,
@@ -150,6 +151,7 @@ pub(crate) fn cleanup_resources(
         warnings: Vec::new(),
         leftover_resources: Vec::new(),
         removed_resources: Vec::new(),
+        capture_health: None,
     };
     let legacy_storage_identity = journal.schema_version == 1;
     if legacy_storage_identity {
@@ -247,6 +249,8 @@ pub(crate) fn cleanup_resources(
     // proven stopped and removed. Removing containment first would create a brief fail-open window
     // during interrupted or timed-out runs.
     if vm_removed && let Some(resources) = journal.network.clone() {
+        let health = super::capture::finish(executor, &resources);
+        outcome.capture_health = Some(health);
         match network::cleanup_owned_resources(executor, &resources) {
             Ok(result) => {
                 outcome.removed_resources.extend(result.removed);
@@ -433,6 +437,7 @@ fn recover_stale_run_from_root(
             warnings: Vec::new(),
             leftover_resources: Vec::new(),
             removed_resources: Vec::new(),
+            capture_health: None,
         });
     }
     Ok(cleanup_resources(executor, &mut journal, shutdown_grace))
@@ -845,6 +850,77 @@ mod tests {
             std::process::id(),
             now_unix_ms()
         ))
+    }
+
+    #[test]
+    fn host_capture_stops_only_after_confirmed_vm_removal_including_failure_paths() {
+        struct LifecycleHost {
+            remove_succeeds: bool,
+            calls: Mutex<Vec<&'static str>>,
+        }
+        impl PowerShellExecutor for LifecycleHost {
+            fn execute(&self, invocation: &PowerShellInvocation) -> SandboxResult<Value> {
+                let mut calls = self.calls.lock().unwrap();
+                calls.push(invocation.operation);
+                match invocation.operation {
+                    "reconcile planned disposable Hyper-V VM" if self.remove_succeeds => {
+                        Ok(serde_json::json!({"removed":true}))
+                    }
+                    "stop run-owned host packet capture after VM removal" => {
+                        assert!(self.remove_succeeds);
+                        assert_eq!(calls[0], "reconcile planned disposable Hyper-V VM");
+                        Ok(
+                            serde_json::json!({"channel":"host_ndis","requested":true,"started":true,"stopped":true,"dropped_events":2}),
+                        )
+                    }
+                    "remove only run-owned Hyper-V firewall and capture resources" => {
+                        Ok(serde_json::json!({"removed":["capture:FoxholeNet-0123456789abcdef"]}))
+                    }
+                    _ => Err(SandboxError::new("test", "VM termination not confirmed")),
+                }
+            }
+        }
+        for succeeds in [true, false] {
+            let parent = unique_test_root(if succeeds {
+                "capture-stop"
+            } else {
+                "capture-retain"
+            });
+            let run_id = "0123456789abcdef";
+            let root = parent.join(run_id);
+            fs::create_dir_all(&root).unwrap();
+            let mut journal = CleanupJournal::new(run_id.into(), root.clone()).unwrap();
+            journal.network = Some(serde_json::from_value(serde_json::json!({
+                "vm_id":"11111111-1111-1111-1111-111111111111",
+                "firewall_scope_id":"22222222-2222-2222-2222-222222222222",
+                "rule_prefix":format!("Foxhole-{run_id}-"), "firewall_rule_ids":[], "firewall_rules":[],
+                "capture_session":format!("FoxholeNet-{run_id}"), "capture_file":root.join("network-capture.etl"),
+                "guest_lease":null
+            })).unwrap());
+            let host = LifecycleHost {
+                remove_succeeds: succeeds,
+                calls: Mutex::new(Vec::new()),
+            };
+            let outcome = cleanup_resources(&host, &mut journal, Duration::from_millis(1));
+            let calls = host.calls.lock().unwrap();
+            if succeeds {
+                assert_eq!(calls.len(), 3);
+                let health = outcome.capture_health.unwrap();
+                assert!(health.started && health.stopped);
+                assert_eq!(health.dropped_events, Some(2));
+                assert!(root.join("network-capture-health.json").is_file());
+                assert!(journal.network.is_none());
+            } else {
+                assert_eq!(
+                    calls.len(),
+                    1,
+                    "capture and containment must remain until VM removal succeeds"
+                );
+                assert!(journal.network.is_some());
+                assert!(outcome.capture_health.is_none());
+            }
+            fs::remove_dir_all(parent).unwrap();
+        }
     }
 
     #[test]

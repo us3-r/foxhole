@@ -1,0 +1,832 @@
+{
+  "detection": {
+    "packet_correlations": [],
+    "network_flows": [
+      {
+        "capture_sha256": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+        "flow": "2aade65a365117f2057cf623fcd78648",
+        "source": "10.0.0.2",
+        "destination": "1.1.1.1",
+        "source_port": 50002,
+        "destination_port": 443,
+        "protocol": "tcp",
+        "first_timestamp_us": 1002000,
+        "last_timestamp_us": 1002000,
+        "packet_count": 1,
+        "captured_bytes": 126,
+        "evidence_ids": [
+          "artifact:capture",
+          "artifact:network"
+        ]
+      },
+      {
+        "capture_sha256": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+        "flow": "9244fce93ecc4f315ceaf198c6afc8bd",
+        "source": "10.0.0.2",
+        "destination": "1.1.1.1",
+        "source_port": 53,
+        "destination_port": 50000,
+        "protocol": "udp",
+        "first_timestamp_us": 1000000,
+        "last_timestamp_us": 1000000,
+        "packet_count": 1,
+        "captured_bytes": 87,
+        "evidence_ids": [
+          "artifact:capture",
+          "artifact:network"
+        ]
+      },
+      {
+        "capture_sha256": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+        "flow": "a98fa9055ab0206c68b49b79c75ffd3c",
+        "source": "10.0.0.2",
+        "destination": "1.1.1.1",
+        "source_port": 50001,
+        "destination_port": 80,
+        "protocol": "tcp",
+        "first_timestamp_us": 1001000,
+        "last_timestamp_us": 1001000,
+        "packet_count": 1,
+        "captured_bytes": 123,
+        "evidence_ids": [
+          "artifact:capture",
+          "artifact:network"
+        ]
+      }
+    ],
+    "coverage": {
+      "capa": "completed",
+      "network": "partial",
+      "pe": "completed",
+      "yara": "completed"
+    },
+    "schema_version": 1,
+    "effective_config": {
+      "schema_version": 1,
+      "yara": {
+        "enabled": true,
+        "executable": null,
+        "executable_sha256": null,
+        "rules": {
+          "id": "foxhole-test",
+          "version": "1",
+          "sha256": "b90f27f8b1ba0c194d8f9b78cfb381d71da04fbbbeeda52cfe2d394ffc8af8f7"
+        },
+        "user_rules": null,
+        "limits": {
+          "timeout_seconds": 60,
+          "memory_bytes": 536870912,
+          "input_bytes": 33554432,
+          "output_bytes": 4194304,
+          "findings": 512,
+          "strings": 2048,
+          "string_bytes": 2048,
+          "match_bytes": 64,
+          "offsets": 256,
+          "features": 256,
+          "depth": 16,
+          "rules": 10000,
+          "files": 32,
+          "packets": 100000,
+          "flows": 4096
+        }
+      },
+      "pe": {
+        "enabled": true,
+        "executable": null,
+        "executable_sha256": null,
+        "rules": null,
+        "user_rules": null,
+        "limits": {
+          "timeout_seconds": 60,
+          "memory_bytes": 536870912,
+          "input_bytes": 33554432,
+          "output_bytes": 4194304,
+          "findings": 512,
+          "strings": 2048,
+          "string_bytes": 2048,
+          "match_bytes": 64,
+          "offsets": 256,
+          "features": 256,
+          "depth": 16,
+          "rules": 10000,
+          "files": 32,
+          "packets": 100000,
+          "flows": 4096
+        }
+      },
+      "capa": {
+        "enabled": true,
+        "executable": null,
+        "executable_sha256": null,
+        "rules": {
+          "id": "foxhole-test",
+          "version": "1",
+          "sha256": "87cb887cda9df7bacb300f2ee2530b46ee48098d1e8cc31f4a6ccdedcee509d0"
+        },
+        "user_rules": null,
+        "limits": {
+          "timeout_seconds": 60,
+          "memory_bytes": 536870912,
+          "input_bytes": 33554432,
+          "output_bytes": 4194304,
+          "findings": 512,
+          "strings": 2048,
+          "string_bytes": 2048,
+          "match_bytes": 64,
+          "offsets": 256,
+          "features": 256,
+          "depth": 16,
+          "rules": 10000,
+          "files": 32,
+          "packets": 100000,
+          "flows": 4096
+        }
+      },
+      "network": {
+        "enabled": true,
+        "executable": null,
+        "executable_sha256": null,
+        "rules": {
+          "id": "foxhole-test",
+          "version": "1",
+          "sha256": "9ca995134b4dcef0a0abd63ff570fe8f7368a12583c69e3ccee7633f146049e9"
+        },
+        "user_rules": null,
+        "limits": {
+          "timeout_seconds": 60,
+          "memory_bytes": 536870912,
+          "input_bytes": 33554432,
+          "output_bytes": 4194304,
+          "findings": 512,
+          "strings": 2048,
+          "string_bytes": 2048,
+          "match_bytes": 64,
+          "offsets": 256,
+          "features": 256,
+          "depth": 16,
+          "rules": 10000,
+          "files": 32,
+          "packets": 100000,
+          "flows": 4096
+        }
+      },
+      "behavioral": true,
+      "total_timeout_seconds": 180,
+      "max_capture_bytes": 67108864,
+      "max_total_output_bytes": 16777216
+    },
+    "stages": [
+      {
+        "schema_version": 1,
+        "scanner": "capa",
+        "version": "9.2.1",
+        "status": "completed",
+        "target": "primary",
+        "target_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+        "started_at_ms": null,
+        "completed_at_ms": null,
+        "duration_ms": null,
+        "rule_packs": [
+          {
+            "id": "foxhole-test",
+            "version": "1",
+            "sha256": "87cb887cda9df7bacb300f2ee2530b46ee48098d1e8cc31f4a6ccdedcee509d0",
+            "trusted": true
+          }
+        ],
+        "limits": {
+          "timeout_seconds": 60,
+          "memory_bytes": 536870912,
+          "input_bytes": 33554432,
+          "output_bytes": 4194304,
+          "findings": 512,
+          "strings": 2048,
+          "string_bytes": 2048,
+          "match_bytes": 64,
+          "offsets": 256,
+          "features": 256,
+          "depth": 16,
+          "rules": 10000,
+          "files": 32,
+          "packets": 100000,
+          "flows": 4096
+        },
+        "truncated": false,
+        "warnings": [],
+        "evidence_ids": [
+          "artifact:capa",
+          "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+        ],
+        "original": {
+          "path": "detection/capa.json",
+          "sha256": "121a0296fb9efd2ce158e3720dbdf79c521945d3703a1056cc198cea187c1335"
+        },
+        "findings": [
+          {
+            "id": "match:ff015f71b3e2e3dc632ad886a324e642",
+            "rule": "import harmless exit function",
+            "namespace": "foxhole/test",
+            "title": "import harmless exit function",
+            "tags": [],
+            "metadata": {},
+            "attack": [],
+            "mbc": [],
+            "maec": {},
+            "scope": "file",
+            "locations": [
+              {
+                "kind": "absolute",
+                "offset": 4198784,
+                "length": 0,
+                "excerpt_hex": ""
+              }
+            ],
+            "features": [
+              "{\"description\":null,\"import\":\"kernel32.ExitProcess\",\"type\":\"import\"}"
+            ],
+            "rule_pack": "foxhole-test",
+            "evidence_ids": [
+              "artifact:capa",
+              "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+            ]
+          }
+        ],
+        "strings": [],
+        "pe": null,
+        "packets": []
+      },
+      {
+        "schema_version": 1,
+        "scanner": "network",
+        "version": "foxhole-packet-1",
+        "status": "partial",
+        "target": "extracted-files/capture.pcapng",
+        "target_sha256": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+        "started_at_ms": null,
+        "completed_at_ms": null,
+        "duration_ms": null,
+        "rule_packs": [
+          {
+            "id": "foxhole-test",
+            "version": "1",
+            "sha256": "9ca995134b4dcef0a0abd63ff570fe8f7368a12583c69e3ccee7633f146049e9",
+            "trusted": true
+          }
+        ],
+        "limits": {
+          "timeout_seconds": 60,
+          "memory_bytes": 536870912,
+          "input_bytes": 33554432,
+          "output_bytes": 4194304,
+          "findings": 512,
+          "strings": 2048,
+          "string_bytes": 2048,
+          "match_bytes": 64,
+          "offsets": 256,
+          "features": 256,
+          "depth": 16,
+          "rules": 10000,
+          "files": 32,
+          "packets": 100000,
+          "flows": 4096
+        },
+        "truncated": false,
+        "warnings": [
+          {
+            "code": "packet_local_analysis_no_tcp_reassembly_encrypted_http_not_inspected",
+            "message": "packet local analysis no tcp reassembly encrypted http not inspected"
+          }
+        ],
+        "evidence_ids": [
+          "artifact:capture",
+          "artifact:network"
+        ],
+        "original": {
+          "path": "detection/network.json",
+          "sha256": "e834a416d403515cfe22a3ea39aedf329da500e56cdf9e99255b8812775c4085"
+        },
+        "findings": [
+          {
+            "id": "match:a77aa1c07d2a40ce7a5aeef95e513457:2",
+            "rule": "foxhole_test_domain",
+            "namespace": "foxhole/packet",
+            "title": "foxhole_test_domain",
+            "tags": [],
+            "metadata": {},
+            "attack": [],
+            "mbc": [],
+            "maec": {},
+            "scope": "file",
+            "locations": [
+              {
+                "kind": "packet",
+                "offset": 2,
+                "length": 0,
+                "excerpt_hex": ""
+              }
+            ],
+            "features": [
+              "flow:a98fa9055ab0206c68b49b79c75ffd3c",
+              "timestamp_us:1001000"
+            ],
+            "rule_pack": "foxhole-test",
+            "evidence_ids": [
+              "artifact:capture",
+              "artifact:network"
+            ]
+          }
+        ],
+        "strings": [],
+        "pe": null,
+        "packets": [
+          {
+            "id": "packet:1",
+            "packet": 1,
+            "timestamp_us": 1000000,
+            "flow": "9244fce93ecc4f315ceaf198c6afc8bd",
+            "source": "10.0.0.2",
+            "destination": "1.1.1.1",
+            "source_port": 53,
+            "destination_port": 50000,
+            "protocol": "udp",
+            "direction": "unknown",
+            "bytes": 87,
+            "dns_query": "example.com",
+            "dns_answers": [
+              "1.1.1.1"
+            ],
+            "http_method": null,
+            "http_host": null,
+            "http_path": null,
+            "user_agent": null,
+            "tls_sni": null,
+            "tls": {},
+            "evidence_ids": [
+              "artifact:capture",
+              "artifact:network"
+            ]
+          },
+          {
+            "id": "packet:2",
+            "packet": 2,
+            "timestamp_us": 1001000,
+            "flow": "a98fa9055ab0206c68b49b79c75ffd3c",
+            "source": "10.0.0.2",
+            "destination": "1.1.1.1",
+            "source_port": 50001,
+            "destination_port": 80,
+            "protocol": "tcp",
+            "direction": "unknown",
+            "bytes": 123,
+            "dns_query": null,
+            "dns_answers": [],
+            "http_method": "GET",
+            "http_host": "example.com",
+            "http_path": "/fixture",
+            "user_agent": "Foxhole/1.0",
+            "tls_sni": null,
+            "tls": {},
+            "evidence_ids": [
+              "artifact:capture",
+              "artifact:network"
+            ]
+          },
+          {
+            "id": "packet:3",
+            "packet": 3,
+            "timestamp_us": 1002000,
+            "flow": "2aade65a365117f2057cf623fcd78648",
+            "source": "10.0.0.2",
+            "destination": "1.1.1.1",
+            "source_port": 50002,
+            "destination_port": 443,
+            "protocol": "tcp",
+            "direction": "unknown",
+            "bytes": 126,
+            "dns_query": null,
+            "dns_answers": [],
+            "http_method": null,
+            "http_host": null,
+            "http_path": null,
+            "user_agent": null,
+            "tls_sni": "example.com",
+            "tls": {
+              "ja3": "1e7c622032b0cb79401b0f7be3793a1a",
+              "record_version": "771",
+              "visibility": "handshake_only_encrypted_http_not_inspected"
+            },
+            "evidence_ids": [
+              "artifact:capture",
+              "artifact:network"
+            ]
+          }
+        ]
+      },
+      {
+        "schema_version": 1,
+        "scanner": "pe",
+        "version": "2024.8.26",
+        "status": "completed",
+        "target": "primary",
+        "target_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+        "started_at_ms": null,
+        "completed_at_ms": null,
+        "duration_ms": null,
+        "rule_packs": [],
+        "limits": {
+          "timeout_seconds": 60,
+          "memory_bytes": 536870912,
+          "input_bytes": 33554432,
+          "output_bytes": 4194304,
+          "findings": 512,
+          "strings": 2048,
+          "string_bytes": 2048,
+          "match_bytes": 64,
+          "offsets": 256,
+          "features": 256,
+          "depth": 16,
+          "rules": 10000,
+          "files": 32,
+          "packets": 100000,
+          "flows": 4096
+        },
+        "truncated": false,
+        "warnings": [],
+        "evidence_ids": [
+          "artifact:pe",
+          "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+        ],
+        "original": {
+          "path": "detection/pe.json",
+          "sha256": "86627d9ad2749b58c1a269ec6cb97625c06f71a9c55ac911fb8cbe86d6f194a8"
+        },
+        "findings": [],
+        "strings": [
+          {
+            "value": ".text",
+            "method": "ascii",
+            "offset": 376
+          },
+          {
+            "value": "ExitProcess",
+            "method": "ascii",
+            "offset": 914
+          },
+          {
+            "value": "FOXHOLE_HARMLESS_TEST",
+            "method": "ascii",
+            "offset": 1024
+          },
+          {
+            "value": "KERNEL32.dll",
+            "method": "ascii",
+            "offset": 864
+          },
+          {
+            "value": "aHR0cHM6Ly9leGFtcGxlLm9yZy8=",
+            "method": "ascii",
+            "offset": 1074
+          },
+          {
+            "value": "https://example.com/fixture",
+            "method": "ascii",
+            "offset": 1046
+          },
+          {
+            "value": "https://example.org/",
+            "method": "base64",
+            "offset": 1074
+          }
+        ],
+        "pe": {
+          "architecture": "x86",
+          "subsystem": 3,
+          "entry_point": 4096,
+          "image_base": 4194304,
+          "compile_timestamp_untrusted": 0,
+          "sections": [
+            {
+              "name": ".text",
+              "raw_size": 1024,
+              "virtual_size": 1024,
+              "offset": 512,
+              "entropy": 1.128424,
+              "permissions": "RX",
+              "sha256": "f2d0563ae57ff94d872216d1fb9b2d0a612235696b07e342f4a6da55017eb297"
+            }
+          ],
+          "imports": [
+            "KERNEL32.dll!ExitProcess"
+          ],
+          "exports": [],
+          "resources": [],
+          "debug": [],
+          "overlay_size": 0,
+          "authenticode_status": "unsigned",
+          "certificates": [],
+          "imphash": "f9ade0aa18f660a34a4fa23392e21838",
+          "authentihash": "09883cab5c6368c1f06f77b95b1ef0b7fb47aebddbf122b2de66707d4a20ad6c",
+          "fuzzy_hash": "tlsh:T1AF31A9E72A9ACAB1C4180B3210C3500F3AF020B00BE2C32003812D261C13375A8B0F22",
+          "packer_compiler": [],
+          "tls_callbacks": [],
+          "embedded_pe_offsets": []
+        },
+        "packets": []
+      },
+      {
+        "schema_version": 1,
+        "scanner": "yara",
+        "version": "4.5.2",
+        "status": "completed",
+        "target": "primary",
+        "target_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+        "started_at_ms": null,
+        "completed_at_ms": null,
+        "duration_ms": null,
+        "rule_packs": [
+          {
+            "id": "foxhole-test",
+            "version": "1",
+            "sha256": "b90f27f8b1ba0c194d8f9b78cfb381d71da04fbbbeeda52cfe2d394ffc8af8f7",
+            "trusted": true
+          }
+        ],
+        "limits": {
+          "timeout_seconds": 60,
+          "memory_bytes": 536870912,
+          "input_bytes": 33554432,
+          "output_bytes": 4194304,
+          "findings": 512,
+          "strings": 2048,
+          "string_bytes": 2048,
+          "match_bytes": 64,
+          "offsets": 256,
+          "features": 256,
+          "depth": 16,
+          "rules": 10000,
+          "files": 32,
+          "packets": 100000,
+          "flows": 4096
+        },
+        "truncated": false,
+        "warnings": [],
+        "evidence_ids": [
+          "artifact:yara",
+          "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+        ],
+        "original": {
+          "path": "detection/yara.json",
+          "sha256": "0052351de9dd5d30c3889c6185243f8aa28d918c72e833d0252407ae25a48380"
+        },
+        "findings": [
+          {
+            "id": "match:e13f7cb1068a5bbca4bad7e00254e481",
+            "rule": "harmless_marker",
+            "namespace": "foxhole",
+            "title": "harmless_marker",
+            "tags": [],
+            "metadata": {
+              "description": "Harmless fixture"
+            },
+            "attack": [],
+            "mbc": [],
+            "maec": {},
+            "scope": "file",
+            "locations": [
+              {
+                "kind": "file",
+                "offset": 1024,
+                "length": 21,
+                "excerpt_hex": "464f58484f4c455f4841524d4c4553535f54455354"
+              }
+            ],
+            "features": [],
+            "rule_pack": "foxhole-test",
+            "evidence_ids": [
+              "artifact:yara",
+              "sha256:99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf"
+            ]
+          }
+        ],
+        "strings": [],
+        "pe": null,
+        "packets": []
+      }
+    ],
+    "behavioral_status": "partial",
+    "warnings": [
+      {
+        "code": "telemetry_incomplete_absence_is_not_safety",
+        "message": "telemetry incomplete absence is not safety"
+      }
+    ]
+  },
+  "schema_version": "1.0",
+  "run_id": "fixture",
+  "target": {
+    "sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+    "size_bytes": 1536
+  },
+  "target_hashes": [],
+  "sandbox": {},
+  "execution": {
+    "pid": 1
+  },
+  "coverage": {},
+  "limitations": [],
+  "raw_event_counts": {
+    "process": 0,
+    "network": 0,
+    "filesystem": 0,
+    "registry": 0
+  },
+  "normalized_event_counts": {
+    "process": 0,
+    "network": 0,
+    "filesystem": 0,
+    "registry": 0
+  },
+  "processes": [],
+  "file_events": [],
+  "registry_events": [],
+  "network_events": [],
+  "artifacts": [
+    {
+      "evidence_id": "artifact:capture",
+      "relative_path": "extracted-files/capture.pcapng",
+      "kind": "packet_capture_pcapng",
+      "size_bytes": 484,
+      "sha256": "43c47d2e3bbcfb3c720423c6267cc1bdcbd6856d9dd74c5c5099b5183a313b64",
+      "exists": true,
+      "hash_verified": true,
+      "source": "fixture",
+      "raw": {}
+    },
+    {
+      "evidence_id": "artifact:yara",
+      "relative_path": "detection/yara.json",
+      "kind": "detection_yara",
+      "size_bytes": 1178,
+      "sha256": "0052351de9dd5d30c3889c6185243f8aa28d918c72e833d0252407ae25a48380",
+      "exists": true,
+      "hash_verified": true,
+      "source": "fixture",
+      "raw": {}
+    },
+    {
+      "evidence_id": "artifact:pe",
+      "relative_path": "detection/pe.json",
+      "kind": "detection_pe",
+      "size_bytes": 1806,
+      "sha256": "86627d9ad2749b58c1a269ec6cb97625c06f71a9c55ac911fb8cbe86d6f194a8",
+      "exists": true,
+      "hash_verified": true,
+      "source": "fixture",
+      "raw": {}
+    },
+    {
+      "evidence_id": "artifact:capa",
+      "relative_path": "detection/capa.json",
+      "kind": "detection_capa",
+      "size_bytes": 1223,
+      "sha256": "121a0296fb9efd2ce158e3720dbdf79c521945d3703a1056cc198cea187c1335",
+      "exists": true,
+      "hash_verified": true,
+      "source": "fixture",
+      "raw": {}
+    },
+    {
+      "evidence_id": "artifact:network",
+      "relative_path": "detection/network.json",
+      "kind": "detection_network",
+      "size_bytes": 2825,
+      "sha256": "e834a416d403515cfe22a3ea39aedf329da500e56cdf9e99255b8812775c4085",
+      "exists": true,
+      "hash_verified": true,
+      "source": "fixture",
+      "raw": {}
+    }
+  ],
+  "validation_warnings": [],
+  "source_paths": [],
+  "raw": {
+    "guest_result": {
+      "detection_config": {
+        "behavioral": true,
+        "capa": {
+          "enabled": true,
+          "executable": null,
+          "executable_sha256": null,
+          "limits": {
+            "depth": 16,
+            "features": 256,
+            "files": 32,
+            "findings": 512,
+            "flows": 4096,
+            "input_bytes": 33554432,
+            "match_bytes": 64,
+            "memory_bytes": 536870912,
+            "offsets": 256,
+            "output_bytes": 4194304,
+            "packets": 100000,
+            "rules": 10000,
+            "string_bytes": 2048,
+            "strings": 2048,
+            "timeout_seconds": 60
+          },
+          "rules": {
+            "id": "foxhole-test",
+            "sha256": "87cb887cda9df7bacb300f2ee2530b46ee48098d1e8cc31f4a6ccdedcee509d0",
+            "version": "1"
+          },
+          "user_rules": null
+        },
+        "max_capture_bytes": 67108864,
+        "max_total_output_bytes": 16777216,
+        "network": {
+          "enabled": true,
+          "executable": null,
+          "executable_sha256": null,
+          "limits": {
+            "depth": 16,
+            "features": 256,
+            "files": 32,
+            "findings": 512,
+            "flows": 4096,
+            "input_bytes": 33554432,
+            "match_bytes": 64,
+            "memory_bytes": 536870912,
+            "offsets": 256,
+            "output_bytes": 4194304,
+            "packets": 100000,
+            "rules": 10000,
+            "string_bytes": 2048,
+            "strings": 2048,
+            "timeout_seconds": 60
+          },
+          "rules": {
+            "id": "foxhole-test",
+            "sha256": "9ca995134b4dcef0a0abd63ff570fe8f7368a12583c69e3ccee7633f146049e9",
+            "version": "1"
+          },
+          "user_rules": null
+        },
+        "pe": {
+          "enabled": true,
+          "executable": null,
+          "executable_sha256": null,
+          "limits": {
+            "depth": 16,
+            "features": 256,
+            "files": 32,
+            "findings": 512,
+            "flows": 4096,
+            "input_bytes": 33554432,
+            "match_bytes": 64,
+            "memory_bytes": 536870912,
+            "offsets": 256,
+            "output_bytes": 4194304,
+            "packets": 100000,
+            "rules": 10000,
+            "string_bytes": 2048,
+            "strings": 2048,
+            "timeout_seconds": 60
+          },
+          "rules": null,
+          "user_rules": null
+        },
+        "schema_version": 1,
+        "total_timeout_seconds": 180,
+        "yara": {
+          "enabled": true,
+          "executable": null,
+          "executable_sha256": null,
+          "limits": {
+            "depth": 16,
+            "features": 256,
+            "files": 32,
+            "findings": 512,
+            "flows": 4096,
+            "input_bytes": 33554432,
+            "match_bytes": 64,
+            "memory_bytes": 536870912,
+            "offsets": 256,
+            "output_bytes": 4194304,
+            "packets": 100000,
+            "rules": 10000,
+            "string_bytes": 2048,
+            "strings": 2048,
+            "timeout_seconds": 60
+          },
+          "rules": {
+            "id": "foxhole-test",
+            "sha256": "b90f27f8b1ba0c194d8f9b78cfb381d71da04fbbbeeda52cfe2d394ffc8af8f7",
+            "version": "1"
+          },
+          "user_rules": null
+        }
+      }
+    }
+  }
+}

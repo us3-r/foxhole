@@ -1,0 +1,107 @@
+{
+  "completed_at_ms": null,
+  "duration_ms": null,
+  "evidence_ids": [
+    "primary"
+  ],
+  "findings": [],
+  "limits": {
+    "depth": 16,
+    "features": 256,
+    "files": 32,
+    "findings": 512,
+    "flows": 4096,
+    "input_bytes": 33554432,
+    "match_bytes": 64,
+    "memory_bytes": 536870912,
+    "offsets": 256,
+    "output_bytes": 4194304,
+    "packets": 100000,
+    "rules": 10000,
+    "string_bytes": 2048,
+    "strings": 2048,
+    "timeout_seconds": 60
+  },
+  "original": null,
+  "packets": [],
+  "pe": {
+    "architecture": "x86",
+    "authenticode_status": "unsigned",
+    "authentihash": "09883cab5c6368c1f06f77b95b1ef0b7fb47aebddbf122b2de66707d4a20ad6c",
+    "certificates": [],
+    "compile_timestamp_untrusted": 0,
+    "debug": [],
+    "embedded_pe_offsets": [],
+    "entry_point": 4096,
+    "exports": [],
+    "fuzzy_hash": "tlsh:T1AF31A9E72A9ACAB1C4180B3210C3500F3AF020B00BE2C32003812D261C13375A8B0F22",
+    "image_base": 4194304,
+    "imphash": "f9ade0aa18f660a34a4fa23392e21838",
+    "imports": [
+      "KERNEL32.dll!ExitProcess"
+    ],
+    "overlay_size": 0,
+    "packer_compiler": [],
+    "resources": [],
+    "sections": [
+      {
+        "entropy": 1.128424,
+        "name": ".text",
+        "offset": 512,
+        "permissions": "RX",
+        "raw_size": 1024,
+        "sha256": "f2d0563ae57ff94d872216d1fb9b2d0a612235696b07e342f4a6da55017eb297",
+        "virtual_size": 1024
+      }
+    ],
+    "subsystem": 3,
+    "tls_callbacks": []
+  },
+  "rule_packs": [],
+  "scanner": "pe",
+  "schema_version": 1,
+  "started_at_ms": null,
+  "status": "completed",
+  "strings": [
+    {
+      "method": "ascii",
+      "offset": 376,
+      "value": ".text"
+    },
+    {
+      "method": "ascii",
+      "offset": 914,
+      "value": "ExitProcess"
+    },
+    {
+      "method": "ascii",
+      "offset": 1024,
+      "value": "FOXHOLE_HARMLESS_TEST"
+    },
+    {
+      "method": "ascii",
+      "offset": 864,
+      "value": "KERNEL32.dll"
+    },
+    {
+      "method": "ascii",
+      "offset": 1074,
+      "value": "aHR0cHM6Ly9leGFtcGxlLm9yZy8="
+    },
+    {
+      "method": "ascii",
+      "offset": 1046,
+      "value": "https://example.com/fixture"
+    },
+    {
+      "method": "base64",
+      "offset": 1074,
+      "value": "https://example.org/"
+    }
+  ],
+  "target": "primary",
+  "target_sha256": "99e63b05ebf6e7a3692fd33ae6dd2f72dea7ac29b82e071e8c8d22d591b3c6bf",
+  "truncated": false,
+  "version": "2024.8.26",
+  "warnings": []
+}

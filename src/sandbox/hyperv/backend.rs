@@ -23,7 +23,7 @@ use crate::sandbox::hyperv::vm::{self, DiskRole, VmHandle, VmSpec};
 use crate::structs::{CleanupStatus, SandboxRunResult, StreamCaptureSummary};
 use sha2::{Digest, Sha256};
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{
     Arc, Mutex,
@@ -39,6 +39,7 @@ const DISK_QUOTA_WATCH_INTERVAL: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Debug)]
 pub struct HyperVConfig {
+    pub detection: crate::detection::DetectionConfig,
     pub base_image_path: PathBuf,
     pub base_manifest_path: PathBuf,
     pub run_root: PathBuf,
@@ -68,6 +69,7 @@ impl HyperVConfig {
             .join("hyperv")
             .join("runs");
         Ok(Self {
+            detection: crate::detection::DetectionConfig::default(),
             base_image_path: base_image_path.into(),
             base_manifest_path: base_manifest_path.into(),
             run_root,
@@ -83,6 +85,9 @@ impl HyperVConfig {
     }
 
     fn validate(&self) -> SandboxResult<()> {
+        self.detection
+            .validate()
+            .map_err(|message| SandboxError::new("hyperv_configuration", message))?;
         if !self.run_root.is_absolute()
             || self.processor_count == 0
             || self.processor_count > vm::MAX_PROCESSOR_COUNT
@@ -207,19 +212,20 @@ pub fn start_with_request(
     request: SandboxRequest,
     config: HyperVConfig,
 ) -> SandboxResult<HyperVSandboxRun> {
-    println!("[cli debug] in start_with_request @backend");
-    let _elapsed_debug_timer = ElapsedDebugTimer::start();
     let mut backend = HyperVBackend::new(config);
     let validation_timer = StageTimer::start("request_validation");
     request.validate_for_backend(BackendKind::HyperV)?;
     let validation_stage = validation_timer.finish(true, Vec::new(), Vec::new());
 
-    println!("[cli debug] pass timer@request_validation");
-
+    let preparation_progress =
+        crate::progress::Stage::start("Validate image and prepare disposable VM");
     let preparation_timer = StageTimer::start("preparation");
     if let Err(preparation_error) = backend.prepare(&request) {
+        preparation_progress.finish(false);
+        let recovery_progress = crate::progress::Stage::start("Recover failed preparation");
         crate::interrupt::begin_cleanup();
         let cleanup_error = backend.cleanup().err();
+        recovery_progress.finish(cleanup_error.is_none());
         return match cleanup_error {
             Some(cleanup_error) => Err(SandboxError::new(
                 "hyperv_preparation_and_cleanup",
@@ -229,12 +235,14 @@ pub fn start_with_request(
         };
     }
 
-    println!("[cli debug] pass timer@preparation");
-
+    preparation_progress.finish(true);
     let preparation_stage = preparation_timer.finish(true, Vec::new(), Vec::new());
 
+    let execution_progress =
+        crate::progress::Stage::start("Boot guest, execute target and collect evidence");
     let execution_timer = StageTimer::start("execution");
     let mut execution = backend.execute(&request);
+    execution_progress.finish(execution.is_ok());
     let execution_stage = execution_timer.finish(
         execution.is_ok(),
         Vec::new(),
@@ -246,11 +254,12 @@ pub fn start_with_request(
             .collect(),
     );
 
-    println!("[cli debug] pass timer@execution");
-
     crate::interrupt::begin_cleanup();
+    let cleanup_progress =
+        crate::progress::Stage::start("Verify cleanup and finalize host capture");
     let cleanup_timer = StageTimer::start("cleanup");
     let cleanup_result = backend.cleanup();
+    cleanup_progress.finish(cleanup_result.is_ok());
     let cleanup_stage = cleanup_timer.finish(
         cleanup_result.is_ok(),
         backend.cleanup_outcome.warnings.clone(),
@@ -261,8 +270,6 @@ pub fn start_with_request(
             .into_iter()
             .collect(),
     );
-
-    println!("[cli debug] pass timer@cleanup");
 
     match (&mut execution, cleanup_result) {
         (Ok(result), Ok(())) => {
@@ -285,7 +292,21 @@ pub fn start_with_request(
         }
         (Err(_), Ok(())) => {}
     }
-    let result = execution?;
+    let mut result = execution?;
+    let mut host_health = backend.cleanup_outcome.capture_health.clone().unwrap_or_else(|| crate::structs::CaptureHealth {
+        channel: "host_ndis".into(), requested: !request.dry_run,
+        byte_limit: Some(super::capture::HOST_CAPTURE_BYTES),
+        warnings: vec!["Host capture unavailable or finalization not confirmed (no virtual NIC, dry run, or incomplete VM cleanup).".into()],
+        ..crate::structs::CaptureHealth::default()
+    });
+    host_health.started |= backend
+        .network_pre_verification
+        .as_ref()
+        .is_some_and(|v| v.capture_active);
+    result
+        .monitor_warnings
+        .extend(host_health.coverage_warnings());
+    result.capture_health.push(host_health);
     let run_id = backend
         .run_id
         .clone()
@@ -336,52 +357,8 @@ pub fn start_with_request(
     })
 }
 
-struct ElapsedDebugTimer {
-    stop: Arc<AtomicBool>,
-    worker: Option<thread::JoinHandle<()>>,
-}
-
-impl ElapsedDebugTimer {
-    fn start() -> Self {
-        let stop = Arc::new(AtomicBool::new(false));
-        let worker_stop = Arc::clone(&stop);
-        let started_at = Instant::now();
-        let worker = thread::spawn(move || {
-            let mut last_report = started_at;
-            while !worker_stop.load(Ordering::Relaxed) {
-                thread::sleep(Duration::from_secs(1));
-                if !worker_stop.load(Ordering::Relaxed)
-                    && last_report.elapsed() >= Duration::from_secs(10)
-                {
-                    print!(
-                        "\r[cli debug] total elapsed: {}s",
-                        started_at.elapsed().as_secs()
-                    );
-                    let _ = io::stdout().flush();
-                    last_report = Instant::now();
-                }
-            }
-        });
-        Self {
-            stop,
-            worker: Some(worker),
-        }
-    }
-}
-
-impl Drop for ElapsedDebugTimer {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-        println!();
-    }
-}
-
 impl SandboxBackend for HyperVBackend {
     fn prepare(&mut self, request: &SandboxRequest) -> SandboxResult<()> {
-        println!("[cli debug] in prepare");
         if self.state != BackendState::Created {
             return Err(SandboxError::new(
                 "hyperv_prepare",
@@ -439,6 +416,7 @@ impl SandboxBackend for HyperVBackend {
                 warnings: Vec::new(),
                 leftover_resources: Vec::new(),
                 removed_resources: Vec::new(),
+                capture_health: None,
             },
         };
         self.prepared = None;
@@ -460,7 +438,6 @@ impl SandboxBackend for HyperVBackend {
 
 impl HyperVBackend {
     fn prepare_inner(&mut self, request: &SandboxRequest) -> SandboxResult<()> {
-        println!("[cli debug] hyperv prepare: validating configuration and request");
         self.config.validate()?;
         request.validate_for_backend(BackendKind::HyperV)?;
         if !request.mapped_paths.is_empty() {
@@ -469,11 +446,9 @@ impl HyperVBackend {
                 "Hyper-V mapped paths are not supported; copy approved inputs into the run package",
             ));
         }
-        println!("[cli debug] hyperv prepare: probing host capability");
         let capability = self.capability()?;
         capability.require_available()?;
 
-        println!("[cli debug] hyperv prepare: pinning target and calculating hash");
         let mut target = host_file::open_pinned_input(&request.target, MAX_STAGED_TARGET_BYTES)
             .map_err(|error| {
                 SandboxError::with_source("hyperv_prepare", "pin target for VM staging", error)
@@ -491,7 +466,6 @@ impl HyperVBackend {
             self.config.base_image_path.clone(),
             self.config.base_manifest_path.clone(),
         );
-        println!("[cli debug] hyperv prepare: validating base image");
         let base = base_image::validate(self.executor.as_ref(), &base_config)?;
         self.guest_image_version = Some(base.manifest.image_version.clone());
         let mut network_plan = network::plan(
@@ -584,9 +558,12 @@ impl HyperVBackend {
             self.track_preparation(&journal);
         }
         self.network_plan = Some(network_plan.clone());
-        println!("[cli debug] hyperv prepare: building guest request");
-        let guest_request =
+        let mut guest_request =
             build_guest_request(request, &network_plan, &run_id, Some(target_sha256))?;
+        guest_request.detection = self.config.detection.clone();
+        guest_request
+            .validate()
+            .map_err(|e| SandboxError::new("hyperv_configuration", e.to_string()))?;
         let required_free_bytes = self
             .config
             .maximum_os_disk_growth_bytes
@@ -600,7 +577,6 @@ impl HyperVBackend {
             })?;
         require_host_free_space(&run_root, required_free_bytes)?;
 
-        println!("[cli debug] hyperv prepare: creating differencing OS disk");
         let os_disk_path = run_root.join("os-diff.vhdx");
         journal.os_disk = Some(os_disk_path.clone());
         journal.persist()?;
@@ -637,9 +613,7 @@ impl HyperVBackend {
         });
         journal.persist()?;
         self.track_preparation(&journal);
-        println!("[cli debug] hyperv prepare: creating and mounting run-data disk");
         let mut data_disk = data_disk::create_and_mount(self.executor.as_ref(), &data_spec)?;
-        println!("[cli debug] hyperv prepare: staging guest package on run-data disk");
         journal.data_disk = Some(data_disk.clone());
         journal.persist()?;
         self.track_preparation(&journal);
@@ -647,9 +621,7 @@ impl HyperVBackend {
         let mut target_file = target.file;
         let request_sha256 =
             data_disk::stage_package(&data_disk.mount_path, &guest_request, &mut target_file)?;
-        println!("[cli debug] hyperv prepare: dismounting run-data disk");
         data_disk::dismount(self.executor.as_ref(), &mut data_disk)?;
-        println!("[cli debug] hyperv prepare: creating disposable VM");
         journal.data_disk = Some(data_disk.clone());
         journal.persist()?;
         self.track_preparation(&journal);
@@ -671,7 +643,6 @@ impl HyperVBackend {
             &os_disk_path,
             DiskRole::OperatingSystem,
         )?;
-        println!("[cli debug] hyperv prepare: attaching run-data disk");
         vm::attach_disk(
             self.executor.as_ref(),
             &vm,
@@ -689,12 +660,9 @@ impl HyperVBackend {
             // report-side plan synchronized with the attested identity learned above.
             self.network_plan = Some(network_plan.clone());
         }
-        println!("[cli debug] hyperv prepare: configuring VM network");
         network::configure(self.executor.as_ref(), &vm.id, &network_plan)?;
-        println!("[cli debug] hyperv prepare: verifying VM network");
         let pre_verification = network::verify(self.executor.as_ref(), &vm.id, &network_plan)?;
         self.network_pre_verification = Some(pre_verification);
-        println!("[cli debug] hyperv prepare: complete");
         journal.persist()?;
         self.track_preparation(&journal);
 
@@ -747,19 +715,16 @@ impl HyperVBackend {
                         "execute request differs from prepared request",
                     ));
                 }
-                println!("[cli debug] hyperv execute: verifying VM network");
                 network::verify(
                     self.executor.as_ref(),
                     &prepared.vm.id,
                     &prepared.network_plan,
                 )?;
-                println!("[cli debug] hyperv execute: starting VM");
                 vm::start(self.executor.as_ref(), &prepared.vm)?;
                 prepared.journal.phase = CleanupPhase::Running;
                 prepared.journal.persist()?;
                 let observation_timer = StageTimer::start("observation");
                 let completion_timer = StageTimer::start("timeout_or_completion");
-                println!("[cli debug] hyperv execute: waiting for guest completion");
                 let disk_quota = WritableDiskQuota {
                     os_disk_path: prepared.journal.os_disk.as_deref().ok_or_else(|| {
                         SandboxError::new(
@@ -777,6 +742,7 @@ impl HyperVBackend {
                     Duration::from_secs(
                         request
                             .timeout_secs
+                            .saturating_add(self.config.detection.total_timeout_seconds)
                             .saturating_add(self.config.boot_timeout_secs)
                             .saturating_add(self.config.shutdown_grace_secs),
                     ),
@@ -979,7 +945,6 @@ impl HyperVBackend {
                     }
                 };
 
-                println!("[cli debug] hyperv execute: verifying post-run network containment");
                 let post_verification = network::verify_after_execution(
                     self.executor.as_ref(),
                     &prepared.vm.id,
@@ -1023,6 +988,12 @@ impl HyperVBackend {
                     ));
                 }
                 validate_guest_result(&envelope, request, &prepared._base.manifest.image_version)?;
+                if envelope.detection_config != self.config.detection.public() {
+                    return Err(SandboxError::new(
+                        "hyperv_result",
+                        "guest analysis configuration differs from the authenticated request",
+                    ));
+                }
                 let post_verification =
                     self.network_post_verification.as_mut().ok_or_else(|| {
                         SandboxError::new(
@@ -1468,6 +1439,7 @@ fn build_guest_request(
         MitigationProfile::Maximum => GuestMitigationProfile::Maximum,
     };
     let guest_request = GuestRunRequest {
+        detection: Default::default(),
         protocol_version: PROTOCOL_VERSION,
         run_id: run_id.to_string(),
         target: data_disk::guest_target_path(&request.target).to_string(),
@@ -1586,6 +1558,19 @@ fn validate_guest_result(
                 "guest stream capture summary is internally inconsistent",
             ));
         }
+    }
+    if execution.capture_health.len() > 8
+        || execution.capture_health.iter().any(|health| {
+            !matches!(health.channel.as_str(), "guest_wfp" | "guest_pktmon")
+                || health.provider_errors.len() > 1024
+                || health.warnings.len() > 1024
+                || health.artifacts.len() > 8
+        })
+    {
+        return Err(SandboxError::new(
+            "hyperv_result",
+            "invalid guest capture-health channel or count",
+        ));
     }
     let maximum_observations = 100_000usize;
     if execution.processes.len() > maximum_observations
@@ -1737,6 +1722,7 @@ fn synthetic_result(
         ),
     };
     SandboxRunResult {
+        capture_health: Vec::new(),
         backend: "hyperv".to_string(),
         network_policy: request.network_policy.name().to_string(),
         integrity_level: "guest_non_admin".to_string(),
@@ -1838,6 +1824,7 @@ mod tests {
     #[test]
     fn writable_disk_budget_is_five_gibibytes_in_aggregate() {
         let config = HyperVConfig {
+            detection: Default::default(),
             base_image_path: std::env::temp_dir().join("base.vhdx"),
             base_manifest_path: std::env::temp_dir().join("base.json"),
             run_root: std::env::temp_dir().join("foxhole-quota-config"),

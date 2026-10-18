@@ -29,7 +29,9 @@ pub fn extract_iocs(run: &NormalizedRun, normalized_hash: &str) -> IocReport {
         );
         match by_key.get_mut(&key) {
             Some(record) => {
-                if candidate.observed_at_ms < record.first_seen_ms {
+                if (candidate.observed_at_ms, &candidate.value)
+                    < (record.first_seen_ms, &record.value)
+                {
                     record.value = candidate.value.clone();
                 }
                 record.first_seen_ms = record.first_seen_ms.min(candidate.observed_at_ms);
@@ -45,6 +47,7 @@ pub fn extract_iocs(run: &NormalizedRun, normalized_hash: &str) -> IocReport {
                 by_key.insert(
                     key,
                     IocRecord {
+                        details: None,
                         ioc_type: candidate.ioc_type,
                         value: candidate.value,
                         normalized_value: candidate.normalized_value,
@@ -59,6 +62,7 @@ pub fn extract_iocs(run: &NormalizedRun, normalized_hash: &str) -> IocReport {
         }
     }
     let mut indicators = by_key.into_values().collect::<Vec<_>>();
+    extend_detection_iocs(run, &mut indicators);
     indicators.sort_by(|left, right| {
         left.ioc_type
             .cmp(&right.ioc_type)
@@ -88,6 +92,241 @@ pub fn extract_iocs(run: &NormalizedRun, normalized_hash: &str) -> IocReport {
         counts_by_type,
         indicators,
         extraction_warnings,
+    }
+}
+
+fn extend_detection_iocs(run: &NormalizedRun, indicators: &mut Vec<IocRecord>) {
+    use crate::detection::observables::{Observable, extract, normalize};
+    use std::collections::BTreeSet;
+    for indicator in indicators.iter_mut() {
+        let ids = indicator
+            .sources
+            .iter()
+            .filter_map(|s| s.evidence_id.clone())
+            .collect::<BTreeSet<_>>();
+        indicator.details = Some(IocDetails {
+            confidence: 75,
+            source_categories: vec!["dynamic".into()],
+            evidence_ids: ids.into_iter().collect(),
+            extraction_methods: vec!["normalized_telemetry".into()],
+            validation_status: "validated_telemetry_observable".into(),
+            ..Default::default()
+        });
+        if (indicator.ioc_type == "ipv4" || indicator.ioc_type == "ipv6")
+            && let Some(o) = normalize(&indicator.ioc_type, &indicator.value)
+        {
+            indicator.contextual |= o.contextual;
+        }
+    }
+    struct Origin<'a> {
+        category: &'a str,
+        hash: &'a str,
+        ids: &'a [String],
+        method: &'a str,
+        offset: Option<u64>,
+        time: u64,
+        related: Vec<String>,
+        relationships: Vec<String>,
+    }
+    let mut add = |o: Observable, origin: Origin<'_>| {
+        let position = indicators
+            .iter()
+            .position(|i| i.ioc_type == o.kind && i.normalized_value == o.normalized);
+        let index = position.unwrap_or_else(|| {
+            indicators.push(IocRecord {
+                details: Some(IocDetails::default()),
+                ioc_type: o.kind.clone(),
+                value: o.original.clone(),
+                normalized_value: o.normalized.clone(),
+                first_seen_ms: origin.time,
+                last_seen_ms: origin.time,
+                contextual: o.contextual,
+                likely_benign: o.contextual,
+                sources: vec![],
+            });
+            indicators.len() - 1
+        });
+        let record = &mut indicators[index];
+        // Keep an order-independent original spelling when timestamps are equal/missing.
+        if (origin.time, &o.original) < (record.first_seen_ms, &record.value) {
+            record.value = o.original;
+        }
+        if origin.time > 0 {
+            record.first_seen_ms = if record.first_seen_ms == 0 {
+                origin.time
+            } else {
+                record.first_seen_ms.min(origin.time)
+            };
+            record.last_seen_ms = record.last_seen_ms.max(origin.time);
+        }
+        record.contextual |= o.contextual;
+        let details = record.details.get_or_insert_with(Default::default);
+        details.confidence = details.confidence.max(o.confidence);
+        details.validation_status = o.validation;
+        details.source_categories.push(origin.category.into());
+        details.file_sha256.push(origin.hash.into());
+        details.evidence_ids.extend_from_slice(origin.ids);
+        details.extraction_methods.push(origin.method.into());
+        details.offsets.extend(origin.offset);
+        details.related_findings.extend(origin.related);
+        details.relationships.extend(origin.relationships);
+        for id in origin.ids {
+            record.sources.push(IocSource {
+                kind: origin.category.into(),
+                pid: None,
+                artifact: String::new(),
+                evidence_id: Some(id.clone()),
+            });
+        }
+    };
+    for stage in &run.detection.stages {
+        for s in &stage.strings {
+            for o in extract(&s.value) {
+                add(
+                    o,
+                    Origin {
+                        category: "static",
+                        hash: &stage.target_sha256,
+                        ids: &stage.evidence_ids,
+                        method: &s.method,
+                        offset: s.offset,
+                        time: 0,
+                        related: vec![],
+                        relationships: vec![],
+                    },
+                );
+            }
+        }
+        for finding in &stage.findings {
+            if stage.scanner != "yara" {
+                continue;
+            }
+            for location in &finding.locations {
+                let bytes = location
+                    .excerpt_hex
+                    .as_bytes()
+                    .chunks_exact(2)
+                    .filter_map(|c| {
+                        std::str::from_utf8(c)
+                            .ok()
+                            .and_then(|s| u8::from_str_radix(s, 16).ok())
+                    })
+                    .collect::<Vec<_>>();
+                if let Ok(value) = std::str::from_utf8(&bytes) {
+                    for o in extract(value) {
+                        add(
+                            o,
+                            Origin {
+                                category: "rule-derived",
+                                hash: &stage.target_sha256,
+                                ids: &finding.evidence_ids,
+                                method: "validated_yara_excerpt",
+                                offset: Some(location.offset),
+                                time: 0,
+                                related: vec![format!(
+                                    "{}:{}:{}",
+                                    stage.scanner, stage.target_sha256, finding.id
+                                )],
+                                relationships: vec![],
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        for packet in &stage.packets {
+            let mut observables = vec![];
+            for value in [&packet.source, &packet.destination]
+                .into_iter()
+                .chain(packet.dns_answers.iter())
+            {
+                observables.extend(normalize("ip", value));
+            }
+            for value in [&packet.dns_query, &packet.http_host, &packet.tls_sni]
+                .into_iter()
+                .flatten()
+            {
+                observables.extend(normalize("domain", value));
+            }
+            if let Some(value) = &packet.user_agent {
+                observables.extend(normalize("user_agent", value));
+            }
+            if let (Some(host), Some(path)) = (&packet.http_host, &packet.http_path) {
+                observables.extend(normalize("url", &format!("http://{host}{path}")));
+            }
+            for (key, value) in &packet.tls {
+                if key == "certificate_sha256" {
+                    observables.extend(normalize("certificate_sha256", value));
+                }
+            }
+            for o in observables {
+                add(
+                    o,
+                    Origin {
+                        category: "packet",
+                        hash: &stage.target_sha256,
+                        ids: &packet.evidence_ids,
+                        method: "offline_packet_metadata",
+                        offset: Some(packet.packet),
+                        time: packet.timestamp_us.unwrap_or(0) / 1000,
+                        related: vec![],
+                        relationships: packet
+                            .dns_query
+                            .as_ref()
+                            .map(|q| {
+                                packet
+                                    .dns_answers
+                                    .iter()
+                                    .map(|ip| {
+                                        format!("dns_answer:{q}:{ip}:packet:{}", packet.packet)
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    },
+                );
+            }
+        }
+        if let Some(pe) = &stage.pe {
+            for cert in &pe.certificates {
+                if let Some(value) = cert.get("sha256")
+                    && let Some(o) = normalize("certificate_sha256", value)
+                {
+                    add(
+                        o,
+                        Origin {
+                            category: "static",
+                            hash: &stage.target_sha256,
+                            ids: &stage.evidence_ids,
+                            method: "pe_certificate",
+                            offset: None,
+                            time: 0,
+                            related: vec![],
+                            relationships: vec![],
+                        },
+                    );
+                }
+            }
+        }
+    }
+    for i in indicators.iter_mut() {
+        i.sources.sort();
+        i.sources.dedup();
+        if let Some(d) = &mut i.details {
+            for values in [
+                &mut d.source_categories,
+                &mut d.file_sha256,
+                &mut d.evidence_ids,
+                &mut d.extraction_methods,
+                &mut d.related_findings,
+                &mut d.relationships,
+            ] {
+                values.sort();
+                values.dedup();
+            }
+            d.offsets.sort();
+            d.offsets.dedup();
+        }
     }
 }
 
@@ -350,12 +589,26 @@ fn add(
     if value.is_empty() {
         return;
     }
+    let kind = match ioc_type {
+        "registry_key" => Some("registry"),
+        "process_image" if looks_like_path(value) => Some("file_path"),
+        "process_image" => Some("filename"),
+        "ipv4" | "ipv6" | "domain" | "url" | "file_path" => Some(ioc_type),
+        _ => None,
+    };
+    let normalized = kind.and_then(|kind| crate::detection::observables::normalize(kind, value));
+    if kind.is_some() && normalized.is_none() {
+        return;
+    }
     output.push(Candidate {
         ioc_type: ioc_type.to_string(),
         value: value.to_string(),
-        normalized_value: normalize_value(ioc_type, value),
+        normalized_value: normalized.as_ref().map_or_else(
+            || normalize_value(ioc_type, value),
+            |o| o.normalized.clone(),
+        ),
         observed_at_ms,
-        contextual,
+        contextual: contextual || normalized.as_ref().is_some_and(|o| o.contextual),
         likely_benign,
         source,
     });
@@ -752,6 +1005,9 @@ mod tests {
 
     fn empty_run() -> NormalizedRun {
         NormalizedRun {
+            capture_health: Vec::new(),
+            network_attempts: Vec::new(),
+            detection: Default::default(),
             schema_version: NORMALIZED_SCHEMA_VERSION.to_string(),
             run_id: "test-run".to_string(),
             target: json!({"path": "sample.exe"}),

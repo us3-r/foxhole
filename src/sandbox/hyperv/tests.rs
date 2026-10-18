@@ -210,3 +210,54 @@ fn cleanup_mock_removes_only_run_prefixed_resources() {
     assert!(network::cleanup_owned_resources(&no_calls, &forged).is_err());
     assert!(no_calls.calls.lock().unwrap().is_empty());
 }
+
+#[test]
+fn capture_start_is_attested_before_vm_boot_and_guest_target_execution() {
+    // These guards bind the two independently executed lifecycles: the guest can
+    // autostart its target, so host instrumentation must precede VM boot itself.
+    let backend = include_str!("backend.rs");
+    let execute = backend.split("fn execute_inner(").nth(1).unwrap();
+    assert!(execute.find("network::verify(").unwrap() < execute.find("vm::start(").unwrap());
+    let script = network::CONTROLLED_NETWORK_SCRIPT;
+    assert!(
+        script.find("Start-NetEventSession").unwrap()
+            < script
+                .find("Required host network capture is not active")
+                .unwrap()
+    );
+    let guest = include_str!("../../../guest-agent/src/process.rs");
+    assert!(
+        guest.find("TelemetrySession::start").unwrap()
+            < guest.find("native_process::execute").unwrap()
+    );
+    assert!(
+        guest.find("native_process::execute").unwrap() < guest.find("telemetry.finish").unwrap()
+    );
+
+    let mut plan = active_host_plan();
+    if let HyperVNetworkPlan::Controlled {
+        capture_session,
+        capture_file,
+        ..
+    } = &mut plan
+    {
+        *capture_session = Some("FoxholeNet-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into());
+        *capture_file = Some(PathBuf::from(r"C:\Foxhole\network-capture.etl"));
+    }
+    let mut attested = host_attachment(vec![
+        "Foxhole-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-host-service",
+        "Foxhole-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-host-inbound",
+    ]);
+    // Missing capture must fail before any VM start, even when all firewall rules match.
+    let unavailable = FakePowerShell::new([Ok(attested.clone())]);
+    assert!(
+        network::configure(&unavailable, "33333333-3333-3333-3333-333333333333", &plan).is_err()
+    );
+    attested["capture_active"] = true.into();
+    let available = FakePowerShell::new([Ok(attested)]);
+    network::configure(&available, "33333333-3333-3333-3333-333333333333", &plan).unwrap();
+    assert_eq!(
+        available.calls.lock().unwrap()[0].2["capture_required"],
+        true
+    );
+}

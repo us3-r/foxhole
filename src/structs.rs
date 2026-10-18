@@ -157,6 +157,8 @@ pub struct ProcessObservation {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NetworkObservation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<NetworkEventContext>,
     pub pid: u32,
     pub protocol: String,
     pub local_address: String,
@@ -221,6 +223,8 @@ impl CleanupStatus {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SandboxRunResult {
+    #[serde(default)]
+    pub capture_health: Vec<CaptureHealth>,
     pub backend: String,
     pub network_policy: String,
     pub integrity_level: String,
@@ -241,4 +245,81 @@ pub struct SandboxRunResult {
     pub mapped_paths: Vec<MappedPathObservation>,
     pub monitor_warnings: Vec<String>,
     pub cleanup: CleanupStatus,
+}
+
+/// Unknown provider counters remain null, never a fabricated zero or completeness claim.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct CaptureHealth {
+    pub channel: String,
+    pub requested: bool,
+    pub started: bool,
+    pub stopped: bool,
+    pub byte_limit: Option<u64>,
+    pub event_limit: Option<u64>,
+    pub raw_event_limit: Option<u64>,
+    pub captured_bytes: Option<u64>,
+    pub captured_packets: Option<u64>,
+    pub captured_events: Option<u64>,
+    pub retained_events: Option<u64>,
+    pub truncated: bool,
+    pub dropped_events: Option<u64>,
+    pub dropped_packets: Option<u64>,
+    pub loss_detected: bool,
+    pub provider_errors: Vec<String>,
+    pub artifacts: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+impl CaptureHealth {
+    pub fn coverage_warnings(&self) -> Vec<String> {
+        let mut warnings = self.warnings.clone();
+        if self.requested && !self.started {
+            warnings.push(format!(
+                "{} capture unavailable: instrumentation start was not confirmed",
+                self.channel
+            ));
+        }
+        if self.started && !self.stopped {
+            warnings.push(format!(
+                "{} capture incomplete: stop was not confirmed",
+                self.channel
+            ));
+        }
+        if self.truncated {
+            warnings.push(format!("{} capture truncated at configured bounds; earlier or excess activity may be absent", self.channel));
+        }
+        if self.loss_detected
+            || self.dropped_events.is_some_and(|v| v > 0)
+            || self.dropped_packets.is_some_and(|v| v > 0)
+        {
+            warnings.push(format!(
+                "{} capture reports lost events or packets",
+                self.channel
+            ));
+        }
+        warnings.extend(
+            self.provider_errors
+                .iter()
+                .map(|e| format!("{} provider error: {e}", self.channel)),
+        );
+        warnings
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NetworkEventContext {
+    pub time_utc: String,
+    pub event_id: u32,
+    pub action: String,
+    pub image: String,
+    pub correlation: NetworkCorrelation,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NetworkCorrelation {
+    pub target: bool,
+    pub confidence: String,
+    pub reason: String,
+    pub process_guid: Option<String>,
 }

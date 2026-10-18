@@ -147,19 +147,37 @@ pub async fn handle_vt_response(
 }
 
 pub fn load_settings(settings_path: &str) -> Result<Settings, Box<dyn StdError>> {
+    load_settings_path(std::path::Path::new(settings_path))
+}
+
+pub(crate) fn load_settings_path(
+    settings_path: &std::path::Path,
+) -> Result<Settings, Box<dyn StdError>> {
     let input =
-        host_file::open_pinned_input(std::path::Path::new(settings_path), MAX_SETTINGS_BYTES)
-            .map_err(|error| {
-                format!("failed to securely open settings file {settings_path:?}: {error}")
-            })?;
+        host_file::open_pinned_input(settings_path, MAX_SETTINGS_BYTES).map_err(|error| {
+            format!(
+                "failed to securely open settings file {:?}: {error}",
+                settings_path.display()
+            )
+        })?;
     let mut settings_data = String::with_capacity(input.len as usize);
     input
         .file
         .take(MAX_SETTINGS_BYTES + 1)
         .read_to_string(&mut settings_data)
-        .map_err(|error| format!("failed to read settings file {settings_path:?}: {error}"))?;
-    serde_json::from_str(&settings_data)
-        .map_err(|error| format!("failed to parse settings file {settings_path:?}: {error}").into())
+        .map_err(|error| {
+            format!(
+                "failed to read settings file {:?}: {error}",
+                settings_path.display()
+            )
+        })?;
+    serde_json::from_str(&settings_data).map_err(|error| {
+        format!(
+            "failed to parse settings file {:?}: {error}",
+            settings_path.display()
+        )
+        .into()
+    })
 }
 
 pub fn write_json_to_file(content: &str) -> std::io::Result<PathBuf> {

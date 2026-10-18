@@ -29,6 +29,8 @@ const MAX_GATEWAY_CONFIG_BYTES: u64 = 64 * 1024;
 #[command(author = "us3-r")]
 #[command(about = "Runs a program in a local sandbox and records observed behavior")]
 pub(crate) struct Args {
+    #[command(subcommand)]
+    command: Option<CliCommand>,
     /// Program or file to inspect
     #[arg(short = 'p', long, value_name = "PATH")]
     pub(crate) path: Option<String>,
@@ -80,6 +82,10 @@ pub(crate) struct Args {
     /// Protected gateway JSON (or FOXHOLE_HYPERV_GATEWAY_CONFIG)
     #[arg(long, value_name = "JSON", requires = "sandbox")]
     pub(crate) hyperv_gateway_config: Option<PathBuf>,
+
+    /// Bounded offline scanner configuration (executables and rule paths refer to the guest)
+    #[arg(long)]
+    pub(crate) analysis_config: Option<PathBuf>,
 
     /// Virtual processors assigned to a disposable Hyper-V guest
     #[arg(
@@ -190,6 +196,12 @@ pub(crate) struct Args {
     host_invocation: Option<report::HostInvocationInfo>,
 }
 
+#[derive(Debug, clap::Subcommand)]
+enum CliCommand {
+    /// Check Hyper-V, the sealed execution image, networking and scanner configuration
+    Doctor(crate::doctor::DoctorArgs),
+}
+
 #[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]
 pub(crate) enum CliNetworkPolicy {
     DenyAll,
@@ -246,6 +258,10 @@ pub async fn run_from_env() -> Result<(), Box<dyn Error>> {
     }
     #[cfg(not(target_os = "windows"))]
     let args = Args::parse();
+    crate::progress::set_debug(args.debug);
+    if let Some(CliCommand::Doctor(doctor)) = args.command {
+        return crate::doctor::run(doctor);
+    }
     if let Some(output) = args.output.as_deref() {
         artifact::configure_artifact_root(output)?;
         eprintln!(
@@ -433,7 +449,16 @@ fn run_sandbox(path: &str, args: &Args) -> Result<(), Box<dyn Error>> {
         run.result.pid, run.result.exit_code, run.result.timed_out, run.result.duration_ms
     );
 
+    eprintln!(
+        "[summary] target_exit={:?}; timed_out={}; cleanup_attempted={}; cleanup_success={}; telemetry_warnings={}",
+        run.result.exit_code,
+        run.result.timed_out,
+        run.result.cleanup.attempted,
+        run.result.cleanup.success,
+        run.result.monitor_warnings.len()
+    );
     if let Some(destination) = report_destination {
+        let report_progress = crate::progress::Stage::start("Write host report");
         let context = report::ReportContext {
             requested_backend: selection.requested.to_string(),
             selected_backend: selection.selected,
@@ -453,6 +478,7 @@ fn run_sandbox(path: &str, args: &Args) -> Result<(), Box<dyn Error>> {
             context,
         )?;
         let destination = report::write_report(&report, &destination)?;
+        report_progress.finish(true);
         println!(
             "[cli] report written to {}",
             utils::terminal_safe(&destination.display().to_string())
@@ -553,7 +579,6 @@ fn execute_windows_backend(
     args: &Args,
     backend: sandbox::backend::BackendKind,
 ) -> Result<CompletedWindowsSandboxRun, Box<dyn Error>> {
-    println!("[cli debug] in execute_windows_backend");
     match backend {
         sandbox::backend::BackendKind::RestrictedProcess => {
             let sandbox::WindowsSandboxRun {
@@ -656,6 +681,7 @@ fn requested_backend(args: &Args) -> Result<sandbox::dispatcher::RequestedBacken
     }
     if requested == sandbox::dispatcher::RequestedBackend::Restricted
         && (args.hyperv_base_image.is_some()
+            || args.analysis_config.is_some()
             || args.hyperv_base_manifest.is_some()
             || args.hyperv_gateway_config.is_some()
             || args.allow_host_server
@@ -783,6 +809,19 @@ fn build_hyperv_config(args: &Args) -> Result<sandbox::hyperv::HyperVConfig, Box
         .checked_mul(1024 * 1024)
         .ok_or("Hyper-V startup-memory value overflowed")?;
     config.boot_timeout_secs = args.hyperv_boot_timeout;
+    if let Some(path) = &args.analysis_config {
+        use std::io::Read;
+        let input = crate::host_file::open_pinned_input(path, 64 * 1024)?;
+        let mut bytes = Vec::new();
+        input.file.take(64 * 1024 + 1).read_to_end(&mut bytes)?;
+        let limits = crate::detection::Limits {
+            output_bytes: 64 * 1024,
+            ..Default::default()
+        };
+        config.detection =
+            serde_json::from_value(crate::detection::validation::bounded_json(&bytes, &limits)?)?;
+        config.detection.validate()?;
+    }
     config.controlled_gateway = configured_gateway_path(args)
         .map(|path| load_gateway_config(&path))
         .transpose()?;

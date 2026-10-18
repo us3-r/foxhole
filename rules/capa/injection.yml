@@ -1,0 +1,15 @@
+rule:
+  meta:
+    name: import remote allocation write and thread functions
+    namespace: host-interaction/process/inject
+    authors: [Foxhole]
+    scopes:
+      static: file
+      dynamic: unsupported
+    att&ck:
+      - Defense Evasion::Process Injection [T1055]
+  features:
+    - and:
+      - import: kernel32.VirtualAllocEx
+      - import: kernel32.WriteProcessMemory
+      - import: kernel32.CreateRemoteThread

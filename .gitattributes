@@ -1,0 +1,9 @@
+rules/*.yar text eol=lf
+rules/*.json text eol=lf
+rules/capa/*.yml text eol=lf
+rules/*.zip binary
+tests/fixtures/detection/*.json text eol=lf
+tests/fixtures/detection/*.bin binary
+tests/fixtures/detection/*.pcapng binary
+guest-agent/assets/detection_worker.py text eol=lf
+guest-agent/assets/detection-requirements* text eol=lf

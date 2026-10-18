@@ -148,6 +148,9 @@ impl GuestExecutor for SystemGuestExecutor {
 
 #[cfg(target_os = "windows")]
 fn merge_telemetry(result: &mut SandboxRunResult, observed: &crate::telemetry::TelemetryResult) {
+    result
+        .capture_health
+        .extend(observed.capture_health.iter().cloned());
     result.processes.extend(observed.processes.iter().cloned());
     result.processes.sort_by(|left, right| {
         (left.observed_at_ms, left.pid, left.parent_pid, &left.image).cmp(&(

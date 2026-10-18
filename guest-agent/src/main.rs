@@ -1,5 +1,6 @@
 mod artifacts;
 mod bootstrap;
+mod detection;
 mod filesystem;
 mod monitor;
 #[cfg(target_os = "windows")]
