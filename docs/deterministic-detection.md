@@ -89,6 +89,10 @@ failure terminates the job. Target execution time does not consume the separate 
 The cleared worker environment supplies `LOCALAPPDATA` inside the broker-owned guest
 workspace for capa's rule cache, and the fixed `USERNAME=FoxholeScanner` label required by
 Vivisect. Neither value is inherited from the host or target's user profile.
+The worker and its cache live in a protected `scanner` subdirectory. The normal
+profile receives read/execute access to the staged input and traversal of the workspace
+root; only `work` is writable. Each worker launch verifies the pinned script against
+the bytes bundled with the agent.
 
 Primary YARA/PE/capa scans run before execution. After execution, the broker collects regular
 target-written executables and scripts from the private guest work directory, hashes and
@@ -112,6 +116,13 @@ The host reopens and rehashes bounded scanner artifacts, checks duplicate keys, 
 depth limits, typed schemas, offsets, hash formats and evidence references, then remaps
 guest aliases to normalized evidence IDs. A final publication gate rejects unresolved
 references. Failure in one scanner preserves accepted results from other stages.
+
+Host process association uses indexes shared across file, registry and network events;
+structured telemetry also indexes PID lookup. Lifetime and capability confirmation indexes
+avoid repeated process/event scans. A shared 64 MiB budget bounds process-image text copied
+into legacy and structured associations. Exhaustion fails analysis explicitly before further
+copies or report publication; collected raw evidence remains available. Image text is not
+silently shortened or replaced.
 
 `completed` means the scanner completed its supported scope. `partial`, `timed_out`,
 `unavailable`, `failed`, `invalid_output`, `skipped`, and `disabled` remain distinct. Stage

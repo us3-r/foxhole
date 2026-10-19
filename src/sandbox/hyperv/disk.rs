@@ -110,6 +110,8 @@ pub(crate) struct DifferencingDisk {
     pub size_bytes: u64,
 }
 
+/// Creates a run-owned writable child of the validated base and checks the returned disk relationship.
+/// The base remains shared/read-only; this child contains the disposable OS changes.
 pub(crate) fn create_differencing_disk(
     executor: &dyn PowerShellExecutor,
     spec: &DifferencingDiskSpec,
@@ -158,6 +160,8 @@ pub(crate) fn inspect_vhd(
         .map_err(|error| SandboxError::with_source("hyperv_disk", "decode VHDX metadata", error))
 }
 
+/// Deletes a contained run VHDX only after its live identity matches the recorded VHD identifier.
+/// Attached or unverifiable disks are retained rather than deleting a possibly unrelated resource.
 pub(crate) fn delete_owned_disk(
     executor: &dyn PowerShellExecutor,
     path: &Path,
@@ -210,6 +214,8 @@ pub(crate) fn delete_owned_disk(
     })
 }
 
+/// Requires a VHDX path lexically below the exact run root before any destructive disk operation.
+/// Live VHD identity checks are still required; a contained filename alone does not prove ownership.
 pub(crate) fn validate_owned_path(path: &Path, run_root: &Path) -> SandboxResult<()> {
     let direct_parent = path
         .parent()

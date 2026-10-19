@@ -12,6 +12,9 @@ use std::path::PathBuf;
 type VtResponse = Result<(reqwest::StatusCode, String), Box<dyn StdError>>;
 const MAX_SETTINGS_BYTES: u64 = 1024 * 1024;
 
+/// Escapes terminal controls and invisible/directional formatting in untrusted text.
+/// Caps the escaped field at 16 KiB before appending a truncation marker; use this
+/// for displayed paths and sample output, while retaining original evidence separately.
 pub fn terminal_safe(value: &str) -> String {
     const MAX_TERMINAL_FIELD_BYTES: usize = 16 * 1024;
 
@@ -49,6 +52,8 @@ pub fn terminal_safe(value: &str) -> String {
     escaped
 }
 
+/// Classifies an accessible path for CLI dispatch without terminating the process.
+/// This follows filesystem metadata and is not the sandbox's secure target-pinning check.
 pub fn validate_path(path: &str) -> ValidatePathResult {
     if path.trim().is_empty() {
         return ValidatePathResult {
@@ -92,6 +97,8 @@ pub fn debug_print(out: bool, color_code: &str, format: Arguments<'_>) {
     }
 }
 
+/// Extracts an analysis ID from a successful VirusTotal response, fetches its result,
+/// and saves the returned JSON under the protected artifact root.
 pub async fn handle_vt_response(
     response: VtResponse,
     debug: bool,
@@ -150,6 +157,8 @@ pub fn load_settings(settings_path: &str) -> Result<Settings, Box<dyn StdError>>
     load_settings_path(std::path::Path::new(settings_path))
 }
 
+/// Reads bounded settings JSON through a pinned local file handle, then parses the captured text.
+/// The handle prevents writes or replacement while the input bytes are being read.
 pub(crate) fn load_settings_path(
     settings_path: &std::path::Path,
 ) -> Result<Settings, Box<dyn StdError>> {
@@ -180,6 +189,8 @@ pub(crate) fn load_settings_path(
     })
 }
 
+/// Creates a bounded VirusTotal result artifact without overwriting an existing file.
+/// Returns the actual published path rather than relying on a caller-supplied filename.
 pub fn write_json_to_file(content: &str) -> std::io::Result<PathBuf> {
     let destination = artifact::virustotal_result_destination()?;
     artifact::secure_write_new(&destination, MAX_VIRUSTOTAL_RESULT_BYTES, |writer| {

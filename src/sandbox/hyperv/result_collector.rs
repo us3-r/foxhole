@@ -73,6 +73,8 @@ struct ArchiveContext<'a> {
     visited_entries: &'a mut u64,
 }
 
+/// Collects a stopped guest's bounded output, binding result/status digests and the artifact manifest.
+/// The caller supplies the verified mounted VHD; this function pins its plain run root before child access.
 pub(crate) fn collect(
     mounted_run_root: &Path,
     archive_root: &Path,
@@ -81,6 +83,7 @@ pub(crate) fn collect(
     limits: &CollectionLimits,
 ) -> SandboxResult<CollectedGuestOutput> {
     validate_limits(limits)?;
+    let _run_root_pin = pin_mounted_run_root(mounted_run_root)?;
     let output_root = mounted_run_root.join("output");
     validate_plain_directory(&output_root)?;
     prepare_archive_root(archive_root)?;
@@ -155,7 +158,7 @@ pub(crate) fn collect(
         ("stdout.txt", stdout_bytes.as_slice()),
         ("stderr.txt", stderr_bytes.as_slice()),
     ] {
-        if !bytes.is_empty() || output_root.join(name).exists() {
+        if !bytes.is_empty() || guest_path_exists(&output_root.join(name))? {
             archive_known_file(
                 &output_root.join(name),
                 &Path::new("guest-output").join(name),
@@ -216,7 +219,7 @@ pub(crate) fn collect(
 
     for directory_name in guest_protocol::ARTIFACT_ROOT_NAMES {
         let directory = output_root.join(directory_name);
-        if !directory.exists() {
+        if !guest_path_exists(&directory)? {
             continue;
         }
         validate_plain_directory(&directory)?;
@@ -225,7 +228,7 @@ pub(crate) fn collect(
 
     let mut warnings = Vec::new();
     let warnings_path = output_root.join("warnings.txt");
-    if warnings_path.exists() {
+    if guest_path_exists(&warnings_path)? {
         let bytes = read_bounded_file(&warnings_path, limits.maximum_stream_bytes)?;
         warnings.extend(
             String::from_utf8_lossy(&bytes)
@@ -244,7 +247,7 @@ pub(crate) fn collect(
     let status_root = mounted_run_root.join("status");
     for state in all_protocol_states() {
         let source = status_root.join(state.file_name());
-        if !source.exists() {
+        if !guest_path_exists(&source)? {
             continue;
         }
         let bytes = read_bounded_file(&source, guest_protocol::MAX_STATUS_BYTES)?;
@@ -256,7 +259,7 @@ pub(crate) fn collect(
         )?;
     }
     let claim_path = status_root.join("agent-claim.json");
-    if claim_path.exists() {
+    if guest_path_exists(&claim_path)? {
         let bytes = read_bounded_file(&claim_path, guest_protocol::MAX_STATUS_BYTES)?;
         archive_known_file(
             &claim_path,
@@ -280,12 +283,15 @@ pub(crate) fn collect(
     })
 }
 
+/// Preserves available bounded files when a run did not produce a complete terminal protocol chain.
+/// Applies the same run-root/link protections as full collection, without treating partial evidence as success.
 pub(crate) fn collect_partial(
     mounted_run_root: &Path,
     archive_root: &Path,
     limits: &CollectionLimits,
 ) -> SandboxResult<PartialCollection> {
     validate_limits(limits)?;
+    let _run_root_pin = pin_mounted_run_root(mounted_run_root)?;
     prepare_archive_root(archive_root)?;
     let mut artifacts = Vec::new();
     let mut total_bytes = 0u64;
@@ -302,7 +308,7 @@ pub(crate) fn collect_partial(
     };
 
     let output_root = mounted_run_root.join("output");
-    if output_root.exists() {
+    if guest_path_exists(&output_root)? {
         validate_plain_directory(&output_root)?;
         for (name, maximum) in [
             ("result.json", limits.maximum_result_bytes),
@@ -315,7 +321,7 @@ pub(crate) fn collect_partial(
             ("warnings.txt", limits.maximum_stream_bytes),
         ] {
             let source = output_root.join(name);
-            if !source.exists() {
+            if !guest_path_exists(&source)? {
                 continue;
             }
             let bytes = read_bounded_file(&source, maximum)?;
@@ -328,7 +334,7 @@ pub(crate) fn collect_partial(
         }
         for directory_name in guest_protocol::ARTIFACT_ROOT_NAMES {
             let directory = output_root.join(directory_name);
-            if directory.exists() {
+            if guest_path_exists(&directory)? {
                 validate_plain_directory(&directory)?;
                 collect_directory(&output_root, &directory, &mut archive, 0)?;
             }
@@ -336,7 +342,7 @@ pub(crate) fn collect_partial(
     }
 
     let status_root = mounted_run_root.join("status");
-    if status_root.exists() {
+    if guest_path_exists(&status_root)? {
         validate_plain_directory(&status_root)?;
         for name in all_protocol_states()
             .iter()
@@ -344,7 +350,7 @@ pub(crate) fn collect_partial(
             .chain(std::iter::once("agent-claim.json"))
         {
             let source = status_root.join(name);
-            if !source.exists() {
+            if !guest_path_exists(&source)? {
                 continue;
             }
             let bytes = read_bounded_file(&source, guest_protocol::MAX_STATUS_BYTES)?;
@@ -630,10 +636,10 @@ fn read_bounded_file(path: &Path, maximum: u64) -> SandboxResult<Vec<u8>> {
 }
 
 fn read_optional_bounded_file(path: &Path, maximum: u64) -> SandboxResult<Vec<u8>> {
-    match read_bounded_file(path, maximum) {
-        Ok(bytes) => Ok(bytes),
-        Err(error) if !path.exists() => Ok(Vec::new()),
-        Err(error) => Err(error),
+    if guest_path_exists(path)? {
+        read_bounded_file(path, maximum)
+    } else {
+        Ok(Vec::new())
     }
 }
 
@@ -741,7 +747,7 @@ fn validate_status_chain(
     let mut records = Vec::new();
     for state in all_protocol_states() {
         let path = status_root.join(state.file_name());
-        if !path.exists() {
+        if !guest_path_exists(&path)? {
             continue;
         }
         let bytes = read_bounded_file(&path, guest_protocol::MAX_STATUS_BYTES)?;
@@ -948,6 +954,112 @@ fn prepare_archive_root(path: &Path) -> SandboxResult<()> {
     })
 }
 
+/// The parent is the host-created volume access point, which is intentionally a
+/// reparse point. Open only its guest-controlled child without following that
+/// child, and retain the handle until every descendant read has finished.
+fn pin_mounted_run_root(path: &Path) -> SandboxResult<File> {
+    artifact::validate_absolute_local_path(path).map_err(|error| {
+        SandboxError::with_source("hyperv_result_collection", "invalid guest run root", error)
+    })?;
+    let open = || -> std::io::Result<File> {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+            const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+            const FILE_SHARE_READ: u32 = 1;
+            OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+                .open(path)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            validate_plain_directory(path).map_err(std::io::Error::other)?;
+            File::open(path)
+        }
+    };
+    let pin = open().map_err(|error| {
+        SandboxError::with_source("hyperv_result_collection", "pin guest run root", error)
+    })?;
+    let metadata = pin.metadata().map_err(|error| {
+        SandboxError::with_source(
+            "hyperv_result_collection",
+            "inspect pinned guest run root",
+            error,
+        )
+    })?;
+    reject_link_or_reparse(path, &metadata)?;
+    if !metadata.is_dir() {
+        return Err(SandboxError::new(
+            "hyperv_result_collection",
+            "guest run root is not a plain directory",
+        ));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+        use windows::Win32::Foundation::HANDLE;
+        use windows::Win32::Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+        };
+        // Following this parent is intentional: it is the mount point already
+        // verified against the run's VHD and disk identity by mount_existing().
+        let parent = path.parent().ok_or_else(|| {
+            SandboxError::new(
+                "hyperv_result_collection",
+                "guest run root has no mounted parent",
+            )
+        })?;
+        let volume = OpenOptions::new()
+            .read(true)
+            .custom_flags(0x0200_0000)
+            .open(parent)
+            .map_err(|error| {
+                SandboxError::with_source(
+                    "hyperv_result_collection",
+                    "open mounted guest volume",
+                    error,
+                )
+            })?;
+        let identity = |file: &File| -> SandboxResult<BY_HANDLE_FILE_INFORMATION> {
+            let mut info = BY_HANDLE_FILE_INFORMATION::default();
+            unsafe { GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut info) }
+                .map_err(|error| {
+                    SandboxError::with_source(
+                        "hyperv_result_collection",
+                        "query guest volume identity",
+                        error,
+                    )
+                })?;
+            Ok(info)
+        };
+        if identity(&pin)?.dwVolumeSerialNumber != identity(&volume)?.dwVolumeSerialNumber {
+            return Err(SandboxError::new(
+                "hyperv_result_collection",
+                "guest run root is outside the mounted guest volume",
+            ));
+        }
+    }
+    Ok(pin)
+}
+
+fn guest_path_exists(path: &Path) -> SandboxResult<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            reject_link_or_reparse(path, &metadata)?;
+            Ok(true)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(SandboxError::with_source(
+            "hyperv_result_collection",
+            "inspect optional guest path",
+            error,
+        )),
+    }
+}
+
 fn validate_plain_directory(path: &Path) -> SandboxResult<()> {
     let metadata = fs::symlink_metadata(path).map_err(|error| {
         SandboxError::with_source(
@@ -1038,6 +1150,104 @@ fn validate_limits(limits: &CollectionLimits) -> SandboxResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "windows")]
+    fn junction(link: &Path, target: &Path) {
+        let result = std::process::Command::new("cmd.exe")
+            .args(["/D", "/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn both_collectors_reject_linked_roots_and_optional_linked_descendants() {
+        let root = std::env::temp_dir().join(format!(
+            "foxhole-collection-root-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let outside = root.join("outside");
+        fs::create_dir_all(outside.join("output")).unwrap();
+        let link = root.join("linked-run");
+        junction(&link, &outside);
+        let archive = root.join("rejected-archive");
+        let limits = CollectionLimits::default();
+        for error in [
+            collect(&link, &archive, "run", "hash", &limits).unwrap_err(),
+            collect_partial(&link, &archive, &limits).unwrap_err(),
+        ] {
+            assert!(
+                error.to_string().contains("reparse")
+                    || error.to_string().contains("symbolic link"),
+                "{error}"
+            );
+        }
+        assert!(
+            !archive.exists(),
+            "reject before archive creation or descendant access"
+        );
+        fs::remove_dir(&link).unwrap();
+
+        let plain = root.join("plain");
+        fs::create_dir(&plain).unwrap();
+        // Optional paths must be inspected without following their final link,
+        // even if that link's destination does not exist.
+        for child in ["output", "status"] {
+            let child_link = plain.join(child);
+            junction(&child_link, &root.join("missing-destination"));
+            assert!(collect_partial(&plain, &archive, &limits).is_err());
+            fs::remove_dir(&child_link).unwrap();
+            fs::remove_dir(&archive).unwrap();
+        }
+        // A host-created mount access point is permitted; its guest child is plain.
+        let mount = root.join("mount");
+        junction(&mount, &outside);
+        fs::create_dir(outside.join("foxhole-run")).unwrap();
+        assert_eq!(
+            collect_partial(&mount.join("foxhole-run"), &archive, &limits)
+                .unwrap()
+                .artifact_count,
+            0
+        );
+        fs::remove_dir(&archive).unwrap();
+        fs::remove_dir(&mount).unwrap();
+        fs::remove_dir(outside.join("foxhole-run")).unwrap();
+        fs::remove_dir(outside.join("output")).unwrap();
+        fs::remove_dir(outside).unwrap();
+        fs::remove_dir(plain).unwrap();
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn pinned_guest_root_cannot_be_replaced_during_collection() {
+        let root = std::env::temp_dir().join(format!(
+            "foxhole-root-pin-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let pin = pin_mounted_run_root(&root).unwrap();
+        let renamed = root.with_extension("renamed");
+        assert!(fs::rename(&root, &renamed).is_err());
+        drop(pin);
+        fs::rename(&root, &renamed).unwrap();
+        fs::remove_dir(renamed).unwrap();
+    }
 
     #[test]
     fn partial_collection_preserves_scanner_json_bytes() {

@@ -780,7 +780,10 @@ fn token_user_sid(token: HANDLE) -> AgentResult<String> {
     )
 }
 
-fn grant_normal_user_workspace_access(workspace: &GuestWorkspace, sid: &str) -> AgentResult<()> {
+pub(crate) fn grant_normal_user_workspace_access(
+    workspace: &GuestWorkspace,
+    sid: &str,
+) -> AgentResult<()> {
     if !sid.starts_with("S-1-")
         || !sid
             .bytes()
@@ -799,9 +802,11 @@ fn grant_normal_user_workspace_access(workspace: &GuestWorkspace, sid: &str) -> 
             "staged target has no input directory",
         )
     })?;
-    for directory in [&workspace.root, input, &workspace.work] {
-        run_icacls(directory, &format!("*{sid}:(OI)(CI)M"))?;
-    }
+    // The root also contains broker code/cache. Grant traversal without
+    // inheritance; only the sample's working directory is writable.
+    run_icacls(&workspace.root, &format!("*{sid}:RX"))?;
+    run_icacls(input, &format!("*{sid}:(OI)(CI)RX"))?;
+    run_icacls(&workspace.work, &format!("*{sid}:(OI)(CI)M"))?;
     run_icacls(&workspace.target, &format!("*{sid}:RX"))
 }
 

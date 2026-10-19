@@ -498,6 +498,12 @@ fn activities(run: &NormalizedRun) -> Vec<Activity> {
             && s.pe.as_ref().is_some_and(|p| !p.packer_compiler.is_empty())
     });
     if packed {
+        let root_observation = run.processes.iter().find(|p| p.pid == root).and_then(|p| {
+            p.observations
+                .iter()
+                .min_by_key(|o| o.observed_at_ms)
+                .map(|o| (p, o))
+        });
         for stage in &run.detection.stages {
             if stage.scanner != "capa" || stage.target != "primary" || stage.target_sha256 != hash {
                 continue;
@@ -510,9 +516,7 @@ fn activities(run: &NormalizedRun) -> Vec<Activity> {
                 {
                     continue;
                 }
-                if let Some(p) = run.processes.iter().find(|p| p.pid == root)
-                    && let Some(o) = p.observations.iter().min_by_key(|o| o.observed_at_ms)
-                {
+                if let Some((p, o)) = root_observation {
                     let mut e = evidence(
                         &f.evidence_ids[0],
                         root,
@@ -561,79 +565,131 @@ fn command_tokens(value: &str) -> Vec<String> {
     }
     tokens
 }
-fn instance(run: &NormalizedRun, pid: u32, time: u64) -> Option<(u64, String)> {
-    if pid == 0 || time == 0 {
-        return None;
-    }
-    let p = run.processes.iter().find(|p| p.pid == pid)?;
-    let mut observations = p
-        .observations
-        .iter()
-        .filter(|o| o.observed_at_ms > 0 && o.observed_at_ms <= time)
-        .collect::<Vec<_>>();
-    observations.sort_by(|a, b| {
-        (a.observed_at_ms, &a.status, &a.image).cmp(&(b.observed_at_ms, &b.status, &b.image))
-    });
-    let mut start = None;
-    let mut guid = String::new();
-    for o in observations {
-        let next_guid = o
-            .raw
-            .get("process_guid")
-            .or_else(|| o.raw.get("ProcessGuid"))
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        if o.status == "terminated" {
-            start = None;
-            guid.clear();
-        } else if (!guid.is_empty() && !next_guid.is_empty() && guid != next_guid)
-            || start
-                .as_ref()
-                .is_none_or(|(_, image)| *image != path(&o.image))
-        {
-            start = Some((o.observed_at_ms, path(&o.image)));
+type ProcessInstance = (u64, String);
+type InstanceHistory = Vec<(u64, Option<ProcessInstance>)>;
+
+/// Build lifetimes and suspicious-event lookups once. The pair budget must not
+/// hide a fresh scan/sort of all process observations or activities per pair.
+struct CorrelationIndex {
+    histories: BTreeMap<u32, InstanceHistory>,
+    suspicious: BTreeMap<u32, BTreeMap<ProcessInstance, Vec<u64>>>,
+}
+
+impl CorrelationIndex {
+    fn new(run: &NormalizedRun, events: &[Activity]) -> Self {
+        let mut histories = BTreeMap::new();
+        for process in &run.processes {
+            let std::collections::btree_map::Entry::Vacant(entry) = histories.entry(process.pid)
+            else {
+                continue;
+            };
+            let history = entry.insert(Vec::new());
+            let mut observations = process
+                .observations
+                .iter()
+                .filter(|o| o.observed_at_ms > 0)
+                .collect::<Vec<_>>();
+            observations.sort_by(|a, b| {
+                (a.observed_at_ms, &a.status, &a.image).cmp(&(
+                    b.observed_at_ms,
+                    &b.status,
+                    &b.image,
+                ))
+            });
+            let mut start: Option<ProcessInstance> = None;
+            let mut guid = String::new();
+            for observation in observations {
+                let next_guid = observation
+                    .raw
+                    .get("process_guid")
+                    .or_else(|| observation.raw.get("ProcessGuid"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                if observation.status == "terminated" {
+                    start = None;
+                    guid.clear();
+                } else if (!guid.is_empty() && !next_guid.is_empty() && guid != next_guid)
+                    || start
+                        .as_ref()
+                        .is_none_or(|(_, image)| *image != path(&observation.image))
+                {
+                    start = Some((observation.observed_at_ms, path(&observation.image)));
+                }
+                if !next_guid.is_empty() {
+                    guid = next_guid;
+                }
+                history.push((observation.observed_at_ms, start.clone()));
+            }
         }
-        if !next_guid.is_empty() {
-            guid = next_guid;
-        }
-    }
-    start
-}
-fn same(run: &NormalizedRun, a: &Activity, b: &Activity) -> bool {
-    a.pid == b.pid
-        && instance(run, a.pid, a.time).is_some()
-        && instance(run, a.pid, a.time) == instance(run, b.pid, b.time)
-}
-fn related(run: &NormalizedRun, a: &Activity, b: &Activity) -> bool {
-    b.parent == Some(a.pid)
-        && instance(run, a.pid, a.time).is_some()
-        && instance(run, a.pid, a.time) == instance(run, a.pid, b.time)
-        && instance(run, b.pid, b.time).is_some()
-}
-fn suspicious(run: &NormalizedRun, events: &[Activity], pid: u32, time: u64) -> bool {
-    events.iter().any(|e| {
-        e.pid == pid
-            && instance(run, pid, e.time).is_some()
-            && instance(run, pid, e.time) == instance(run, pid, time)
-            && e.time <= time
-            && time - e.time <= 120000
-            && [
+        let mut index = Self {
+            histories,
+            suspicious: BTreeMap::new(),
+        };
+        for event in events.iter().filter(|e| {
+            [
                 "injection",
                 "credential_read",
                 "persistence",
                 "telemetry_tamper",
             ]
             .contains(&e.kind.as_str())
-    })
+        }) {
+            if let Some(instance) = index.instance(event.pid, event.time).cloned() {
+                index
+                    .suspicious
+                    .entry(event.pid)
+                    .or_default()
+                    .entry(instance)
+                    .or_default()
+                    .push(event.time);
+            }
+        }
+        for instances in index.suspicious.values_mut() {
+            for times in instances.values_mut() {
+                times.sort_unstable();
+            }
+        }
+        index
+    }
+
+    fn instance(&self, pid: u32, time: u64) -> Option<&ProcessInstance> {
+        if pid == 0 || time == 0 {
+            return None;
+        }
+        let history = self.histories.get(&pid)?;
+        let end = history.partition_point(|(at, _)| *at <= time);
+        history.get(end.checked_sub(1)?)?.1.as_ref()
+    }
+
+    fn suspicious(&self, pid: u32, time: u64) -> bool {
+        let Some(instance) = self.instance(pid, time) else {
+            return false;
+        };
+        let Some(times) = self
+            .suspicious
+            .get(&pid)
+            .and_then(|instances| instances.get(instance))
+        else {
+            return false;
+        };
+        let end = times.partition_point(|at| *at <= time);
+        end.checked_sub(1)
+            .is_some_and(|last| time - times[last] <= 120000)
+    }
 }
-fn matches(
-    rule: &Rule,
-    a: &Activity,
-    b: &Activity,
-    run: &NormalizedRun,
-    events: &[Activity],
-) -> bool {
+fn same(index: &CorrelationIndex, a: &Activity, b: &Activity) -> bool {
+    a.pid == b.pid
+        && index.instance(a.pid, a.time).is_some()
+        && index.instance(a.pid, a.time) == index.instance(b.pid, b.time)
+}
+fn related(index: &CorrelationIndex, a: &Activity, b: &Activity) -> bool {
+    b.parent == Some(a.pid)
+        && index.instance(a.pid, a.time).is_some()
+        && index.instance(a.pid, a.time) == index.instance(a.pid, b.time)
+        && index.instance(b.pid, b.time).is_some()
+}
+fn matches(rule: &Rule, a: &Activity, b: &Activity, index: &CorrelationIndex) -> bool {
     if a.time == 0
         || b.time <= a.time
         || b.time - a.time > rule.window
@@ -642,39 +698,41 @@ fn matches(
         return false;
     }
     match rule.relation {
-        "payload_child" => related(run, a, b) && !a.object.is_empty() && a.object == b.object,
-        "parent_child" => related(run, a, b),
+        "payload_child" => related(index, a, b) && !a.object.is_empty() && a.object == b.object,
+        "parent_child" => related(index, a, b),
         "child_behavior" => {
             a.pid == b.pid
-                && same(run, a, b)
-                && a.parent
-                    .is_some_and(|p| !suspicious(run, events, p, b.time))
-                && suspicious(run, events, b.pid, b.time)
+                && same(index, a, b)
+                && a.parent.is_some_and(|p| !index.suspicious(p, b.time))
+                && index.suspicious(b.pid, b.time)
         }
         "pipe_child" => {
             !a.object.is_empty()
                 && a.object == b.object
                 && a.pid != b.pid
-                && (related(run, a, b)
+                && (related(index, a, b)
                     || (a.parent == b.parent
                         && a.parent.is_some()
-                        && instance(run, a.parent.unwrap_or(0), a.time).is_some()
-                        && instance(run, a.parent.unwrap_or(0), a.time)
-                            == instance(run, a.parent.unwrap_or(0), b.time)))
+                        && index.instance(a.parent.unwrap_or(0), a.time).is_some()
+                        && index.instance(a.parent.unwrap_or(0), a.time)
+                            == index.instance(a.parent.unwrap_or(0), b.time)))
         }
         "same_object" | "same_payload" => {
-            same(run, a, b) && !a.object.is_empty() && a.object == b.object
+            same(index, a, b) && !a.object.is_empty() && a.object == b.object
         }
         "distinct_objects" => {
-            same(run, a, b) && !a.object.is_empty() && !b.object.is_empty() && a.object != b.object
+            same(index, a, b)
+                && !a.object.is_empty()
+                && !b.object.is_empty()
+                && a.object != b.object
         }
         "dns_address" => {
-            same(run, a, b)
+            same(index, a, b)
                 && a.object == b.object
                 && !a.auxiliary.is_empty()
-                && suspicious(run, events, a.pid, a.time)
+                && index.suspicious(a.pid, a.time)
         }
-        "same_process" => same(run, a, b),
+        "same_process" => same(index, a, b),
         _ => false,
     }
 }
@@ -697,6 +755,7 @@ fn build_from_events(run: &NormalizedRun, events: &[Activity]) -> Vec<Finding> {
         ))
     });
     let events = ordered.as_slice();
+    let index = CorrelationIndex::new(run, events);
     let complete = super::detection::telemetry_complete(run);
     let mut findings = vec![];
     let mut checks = 0usize;
@@ -714,7 +773,7 @@ fn build_from_events(run: &NormalizedRun, events: &[Activity]) -> Vec<Finding> {
                 if checks > 1_000_000 {
                     break;
                 }
-                if matches(rule, a, b, run, events) {
+                if matches(rule, a, b, &index) {
                     if evidence.len() >= 256 {
                         checks = 1_000_001;
                         break;
@@ -744,11 +803,16 @@ fn build_from_events(run: &NormalizedRun, events: &[Activity]) -> Vec<Finding> {
     {
         findings.push(Finding {details:None,rule_id:"FH-COVERAGE-001".into(),severity:Severity::Informational,title:"Behavioral correlation budget exhausted".into(),explanation:"Correlation was partial because the fixed pair or evidence limit was reached; unmatched rules are not a clean result.".into(),evidence:vec![e.evidence.clone()],confidence:0.3,score_contribution:0});
     }
-    static_confirmation(run, events, &mut findings);
+    static_confirmation(run, events, &index, &mut findings);
     findings.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
     findings
 }
-fn static_confirmation(run: &NormalizedRun, events: &[Activity], findings: &mut Vec<Finding>) {
+fn static_confirmation(
+    run: &NormalizedRun,
+    events: &[Activity],
+    index: &CorrelationIndex,
+    findings: &mut Vec<Finding>,
+) {
     let hash = run
         .target
         .get("sha256")
@@ -766,27 +830,48 @@ fn static_confirmation(run: &NormalizedRun, events: &[Activity], findings: &mut 
             .map(|o| o.observed_at_ms)
             .min()
     });
+    // Retain the first matching activity in input order for each confirmation
+    // family. Capabilities query these four candidates rather than all events.
+    let mut confirmations = BTreeMap::new();
+    if let Some(start) = root_start {
+        let root_instance = index.instance(root, start);
+        for (order, event) in events.iter().enumerate() {
+            let prefix = match event.kind.as_str() {
+                "injection" => "T1055",
+                "persistence" => "T154",
+                "credential_read" => "T1555",
+                "telemetry_tamper" => "T1562",
+                _ => continue,
+            };
+            if event.pid == root
+                && event.time >= start
+                && event.time - start <= 120000
+                && root_instance.is_some()
+                && root_instance == index.instance(root, event.time)
+            {
+                confirmations.entry(prefix).or_insert((order, event));
+            }
+        }
+    }
     for stage in &run.detection.stages {
         if stage.scanner != "capa" || stage.target != "primary" || stage.target_sha256 != hash {
             continue;
         }
         for capability in &stage.findings {
-            let confirmation = events.iter().find(|e| {
-                e.pid == root
-                    && root_start.is_some_and(|start| {
-                        e.time >= start
-                            && e.time - start <= 120000
-                            && instance(run, root, start).is_some()
-                            && instance(run, root, start) == instance(run, root, e.time)
+            let confirmation = confirmations
+                .iter()
+                .filter(|(prefix, _)| {
+                    capability.attack.iter().any(|t| {
+                        if **prefix == "T154" {
+                            t.starts_with("T1547") || t.starts_with("T1543")
+                        } else {
+                            t.starts_with(**prefix)
+                        }
                     })
-                    && capability.attack.iter().any(|t| match e.kind.as_str() {
-                        "injection" => t.starts_with("T1055"),
-                        "persistence" => t.starts_with("T1547") || t.starts_with("T1543"),
-                        "credential_read" => t.starts_with("T1555"),
-                        "telemetry_tamper" => t.starts_with("T1562"),
-                        _ => false,
-                    })
-            });
+                })
+                .map(|(_, &(order, event))| (order, event))
+                .min_by_key(|(order, _)| *order)
+                .map(|(_, event)| event);
             let mut refs = capability
                 .evidence_ids
                 .iter()
@@ -880,6 +965,126 @@ fn score_group(f: &Finding) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn indexed_instances_preserve_guid_changes_termination_and_suspicious_windows() {
+        let mut run = run();
+        let first = run.processes[0].observations[0].clone();
+        let observation = |time, status: &str, guid: &str, image: &str| {
+            let mut row = first.clone();
+            row.observed_at_ms = time;
+            row.status = status.into();
+            row.image = image.into();
+            row.raw = json!({"ProcessGuid":guid});
+            row
+        };
+        run.processes[0].observations = vec![
+            observation(10, "observed", "A", "C:\\one.exe"),
+            observation(20, "observed", "a", "C:\\one.exe"),
+            observation(30, "observed", "B", "C:\\one.exe"),
+            observation(40, "terminated", "B", "C:\\one.exe"),
+            observation(40, "observed", "C", "C:\\two.exe"),
+            observation(50, "observed", "C", "C:\\two.exe"),
+        ];
+        let events = vec![
+            event("injection", 1, 20, "", "first"),
+            event("persistence", 1, 50, "", "second"),
+        ];
+        let index = CorrelationIndex::new(&run, &events);
+        assert_eq!(index.instance(1, 9), None);
+        assert_eq!(index.instance(1, 29).map(|v| v.0), Some(10));
+        assert_eq!(index.instance(1, 30).map(|v| v.0), Some(30));
+        // Same-time observations retain the old status/image ordering: termination wins.
+        assert_eq!(index.instance(1, 40), None);
+        assert_eq!(index.instance(1, 50).map(|v| v.0), Some(50));
+        assert!(!index.suspicious(1, 19));
+        assert!(index.suspicious(1, 29));
+        assert!(!index.suspicious(1, 30));
+        assert!(index.suspicious(1, 120050));
+        assert!(!index.suspicious(1, 120051));
+        assert_eq!(index.instance(0, 50), None);
+        assert_eq!(index.instance(1, 0), None);
+    }
+
+    #[test]
+    fn capability_confirmation_preserves_first_matching_event_order() {
+        let mut run = run();
+        let mut stage: crate::detection::ScannerResult =
+            serde_json::from_str(include_str!("../../tests/fixtures/detection/capa.json")).unwrap();
+        stage.target_sha256 = "cd".repeat(32);
+        let mut capability = stage.findings[0].clone();
+        capability.attack = vec!["T1055".into(), "T1547".into()];
+        stage.findings = vec![capability];
+        run.detection.stages.push(stage);
+        let events = vec![
+            event("persistence", 1, 150, "", "first-input-event"),
+            event("injection", 1, 100, "", "earlier-time"),
+        ];
+        let index = CorrelationIndex::new(&run, &events);
+        let mut findings = vec![];
+        static_confirmation(&run, &events, &index, &mut findings);
+        assert_eq!(
+            findings[0].evidence.last().unwrap().evidence_id,
+            "first-input-event"
+        );
+        assert!(findings[0].rule_id.starts_with("FH-B017:"));
+    }
+
+    #[test]
+    fn many_unconfirmed_capabilities_do_not_rescan_launch_observations() {
+        let mut run = run();
+        let first = run.processes[0].observations[0].clone();
+        run.processes[0].observations = (1..=50_000)
+            .map(|time| {
+                let mut row = first.clone();
+                row.observed_at_ms = time;
+                row.evidence_id = format!("launch:{time}");
+                row
+            })
+            .collect();
+        let mut stage: crate::detection::ScannerResult =
+            serde_json::from_str(include_str!("../../tests/fixtures/detection/capa.json")).unwrap();
+        stage.target_sha256 = "cd".repeat(32);
+        let mut capability = stage.findings[0].clone();
+        capability.attack = vec!["T1055".into()];
+        stage.findings = (0..4096)
+            .map(|id| {
+                let mut finding = capability.clone();
+                finding.id = format!("capability:{id}");
+                finding
+            })
+            .collect();
+        run.detection.stages.push(stage);
+        let findings = build(&run);
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|f| f.rule_id.starts_with("FH-B018:"))
+                .count(),
+            4096
+        );
+        assert!(!findings.iter().any(|f| f.rule_id.starts_with("FH-B017:")));
+    }
+
+    #[test]
+    fn repeated_process_instance_queries_use_one_bounded_history() {
+        let mut run = run();
+        let first = run.processes[0].observations[0].clone();
+        run.processes[0].observations = (1..=50_000)
+            .map(|time| {
+                let mut row = first.clone();
+                row.observed_at_ms = time;
+                row
+            })
+            .collect();
+        let events = vec![event("injection", 1, 1, "", "first")];
+        let index = CorrelationIndex::new(&run, &events);
+        assert_eq!(index.histories[&1].len(), 50_000);
+        for time in 1..=50_000 {
+            assert_eq!(index.instance(1, time).map(|v| v.0), Some(1));
+            assert!(index.suspicious(1, time));
+        }
+    }
     fn run() -> NormalizedRun {
         let mut run:NormalizedRun=serde_json::from_value(json!({"schema_version":"1.0","run_id":"fixture","target":{"sha256":"cd".repeat(32),"size_bytes":1024},"target_hashes":[],"sandbox":{},"execution":{"pid":1},"coverage":{},"limitations":[],"raw_event_counts":{"process":0,"network":0,"filesystem":0,"registry":0},"normalized_event_counts":{"process":0,"network":0,"filesystem":0,"registry":0},"processes":[],"file_events":[],"registry_events":[],"network_events":[],"artifacts":[],"validation_warnings":[],"source_paths":[],"raw":{}})).unwrap();
         for name in ["processes", "network", "filesystem", "registry"] {
@@ -1070,7 +1275,8 @@ mod tests {
         stage.findings[0].attack = vec!["T1055".into()];
         run.detection.stages.push(stage);
         let mut findings = vec![];
-        static_confirmation(&run, &[], &mut findings);
+        let index = CorrelationIndex::new(&run, &[]);
+        static_confirmation(&run, &[], &index, &mut findings);
         assert!(findings[0].rule_id.starts_with("FH-B018"));
         assert_eq!(findings[0].score_contribution, 0);
         let confirmed = findings.clone();
@@ -1078,6 +1284,7 @@ mod tests {
         static_confirmation(
             &run,
             &[event("injection", 1, 120002, "target", "late")],
+            &index,
             &mut findings,
         );
         assert!(findings[0].rule_id.starts_with("FH-B018"));
@@ -1086,6 +1293,7 @@ mod tests {
         static_confirmation(
             &run,
             &[event("injection", 1, 100, "target", "inject")],
+            &index,
             &mut findings,
         );
         assert!(findings[0].confidence < 0.85);
@@ -1094,6 +1302,7 @@ mod tests {
         static_confirmation(
             &run,
             &[event("injection", 1, 100, "target", "inject")],
+            &index,
             &mut findings,
         );
         assert!(findings[0].rule_id.starts_with("FH-B017"));

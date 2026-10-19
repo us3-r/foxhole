@@ -16,6 +16,8 @@ pub(super) struct ActivityMonitor {
 }
 
 impl ActivityMonitor {
+    /// Starts an observation worker with a shared stop flag owned by this guard.
+    /// Dropping the guard also signals and joins the worker, preventing an orphan monitor.
     pub(super) fn spawn(
         worker: impl FnOnce(Arc<AtomicBool>) -> MonitorResult + Send + 'static,
     ) -> Self {
@@ -27,6 +29,7 @@ impl ActivityMonitor {
         }
     }
 
+    /// Signals completion and collects observations, converting worker panic into a coverage warning.
     pub(super) fn stop_and_join(mut self) -> MonitorResult {
         self.stop.store(true, Ordering::Release);
         match self

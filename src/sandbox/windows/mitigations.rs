@@ -26,6 +26,9 @@ const COMPATIBLE_POLICY: u64 = DEP_ENABLE
     | EXTENSION_POINT_DISABLE_ALWAYS_ON
     | CONTROL_FLOW_GUARD_ALWAYS_ON;
 
+/// Produces cumulative CreateProcess mitigation bits for the requested compatibility level.
+/// Win32k lockdown and Microsoft-only images are reserved for Maximum; GUI detection does not
+/// weaken the selected policy, even when a strict policy makes a target unable to run.
 pub(super) fn policy(profile: MitigationProfile, _gui_target: bool) -> u64 {
     match profile {
         MitigationProfile::Compatible => COMPATIBLE_POLICY,

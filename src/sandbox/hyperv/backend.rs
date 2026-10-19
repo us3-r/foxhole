@@ -208,6 +208,8 @@ impl HyperVBackend {
     }
 }
 
+/// Runs the Hyper-V prepare/execute/cleanup lifecycle and builds the common staged run report.
+/// Cleanup is attempted after partial setup or execution failure, with retained resources reported explicitly.
 pub fn start_with_request(
     request: SandboxRequest,
     config: HyperVConfig,
@@ -437,6 +439,8 @@ impl SandboxBackend for HyperVBackend {
 }
 
 impl HyperVBackend {
+    /// Pins/hashes the target and base image, then stages the disposable VM, disks and network.
+    /// Records recovery metadata as setup advances so partial preparation can be reconciled.
     fn prepare_inner(&mut self, request: &SandboxRequest) -> SandboxResult<()> {
         self.config.validate()?;
         request.validate_for_backend(BackendKind::HyperV)?;
@@ -680,6 +684,8 @@ impl HyperVBackend {
         Ok(())
     }
 
+    /// Boots the prepared VM, enforces host execution/storage limits and collects its terminal evidence.
+    /// Guest output is consumed after the VM stops and the run-data disk is detached from it.
     fn execute_inner(
         &mut self,
         request: &SandboxRequest,
@@ -1117,6 +1123,8 @@ impl HostVmObservations {
     }
 }
 
+/// Observes VM completion with a concurrent writable-disk watcher that can force the VM off.
+/// Quota/check failures remain authoritative even when ordinary completion is observed at the same time.
 fn wait_for_vm_completion(
     executor: &dyn PowerShellExecutor,
     vm: &VmHandle,
@@ -1345,6 +1353,8 @@ struct PartialPreservation {
     success: bool,
 }
 
+/// Best-effort preservation of bounded guest evidence after an incomplete run.
+/// Requires the VM to stop before detaching/mounting its data disk; errors become preservation diagnostics.
 fn preserve_partial_guest_output(
     executor: &dyn PowerShellExecutor,
     prepared: &mut LivePrepared,
@@ -1409,6 +1419,8 @@ fn os_disk_quota_error(
     )
 }
 
+/// Constructs the guest's bounded execution request using guest-relative paths and the pinned target hash.
+/// Host artifact/image paths stay in host configuration rather than crossing this protocol boundary.
 fn build_guest_request(
     request: &SandboxRequest,
     network_plan: &HyperVNetworkPlan,
@@ -1477,6 +1489,8 @@ fn build_guest_request(
     Ok(guest_request)
 }
 
+/// Binds returned execution metadata to the requested image, profile, limits and observation ceilings.
+/// These consistency checks do not make guest-admin-controlled activity claims independently trustworthy.
 fn validate_guest_result(
     envelope: &GuestResultEnvelope<SandboxRunResult>,
     request: &SandboxRequest,

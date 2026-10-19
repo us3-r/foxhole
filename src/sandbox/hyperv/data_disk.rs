@@ -19,6 +19,8 @@ pub(crate) const TARGET_GUEST_PATH: &str = "input/target.bin";
 pub(crate) const TARGET_GUEST_BATCH_PATH: &str = "input/target.bat";
 pub(crate) const TARGET_GUEST_COMMAND_PATH: &str = "input/target.cmd";
 
+/// Chooses a fixed guest target name, retaining only the supported batch-file extension when needed.
+/// The host's basename/path is not used as a guest-controlled staging destination.
 pub(crate) fn guest_target_path(host_target: &Path) -> &'static str {
     match host_target.extension().and_then(|value| value.to_str()) {
         Some(extension) if extension.eq_ignore_ascii_case("bat") => TARGET_GUEST_BATCH_PATH,
@@ -240,6 +242,8 @@ pub(crate) struct RunDataDisk {
     pub state: DataDiskState,
 }
 
+/// Creates/formats the per-run exchange VHD, mounts it at the host access point and validates its identity.
+/// The returned mount is used for request staging and must be detached before guest access.
 pub(crate) fn create_and_mount(
     executor: &dyn PowerShellExecutor,
     spec: &RunDataDiskSpec,
@@ -274,6 +278,8 @@ pub(crate) fn create_and_mount(
     })
 }
 
+/// Reattaches the recorded exchange VHD and checks its label plus immutable VHD/disk identities.
+/// Mounted state is recorded only after success; an error is not proof that no host attachment occurred.
 pub(crate) fn mount_existing(
     executor: &dyn PowerShellExecutor,
     disk: &mut RunDataDisk,
@@ -341,6 +347,8 @@ pub(crate) fn mount_existing(
     Ok(())
 }
 
+/// Dismounts a recorded mounted exchange disk, then marks it detached after successful verification.
+/// The Detached fast path trusts recorded state, so callers must account for partially failed mounts.
 pub(crate) fn dismount(
     executor: &dyn PowerShellExecutor,
     disk: &mut RunDataDisk,
@@ -386,6 +394,8 @@ pub(crate) fn dismount(
     Ok(())
 }
 
+/// Copies the pinned target and publishes the validated request/start records into the guest run layout.
+/// Uses fixed guest paths, bounded copies and the expected digest before authorizing execution.
 pub(crate) fn stage_package(
     mount_root: &Path,
     request: &GuestRunRequest,

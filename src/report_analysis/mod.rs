@@ -3,6 +3,7 @@ mod detection;
 mod ioc;
 mod loader;
 mod model;
+mod process_index;
 mod publication;
 pub mod stages;
 mod telemetry;

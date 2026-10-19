@@ -9,6 +9,41 @@ use std::time::{Duration, Instant};
 
 const WORKER: &[u8] = include_bytes!("../assets/detection_worker.py");
 
+pub(crate) fn prepare_worker(workspace_root: &Path) -> AgentResult<std::path::PathBuf> {
+    let directory = workspace_root.join("scanner");
+    crate::security::prepare_broker_directory(&directory)?;
+    let worker = directory.join("detection-worker.py");
+    match std::fs::symlink_metadata(&worker) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            crate::artifacts::write_atomic_bytes_new(&worker, WORKER, 128 * 1024)?;
+        }
+        Err(error) => {
+            return Err(AgentError::with_source(
+                "detection",
+                "inspect_worker",
+                "inspect the bundled detection worker",
+                error,
+            ));
+        }
+    }
+    crate::security::harden_broker_file(&worker, false)?;
+    Ok(worker)
+}
+
+#[cfg(target_os = "windows")]
+fn verify_worker_bytes(file: &std::fs::File, expected: &[u8]) -> std::io::Result<()> {
+    let mut bytes = Vec::new();
+    file.take(128 * 1024 + 1).read_to_end(&mut bytes)?;
+    if bytes != expected {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "bundled detection worker integrity mismatch",
+        ));
+    }
+    Ok(())
+}
+
 pub struct Session {
     elapsed: Duration,
     bytes: u64,
@@ -168,10 +203,7 @@ impl Session {
         hash: &str,
         capture: bool,
     ) -> AgentResult<()> {
-        let worker = workspace.root.join("detection-worker.py");
-        if !worker.exists() {
-            crate::artifacts::write_atomic_bytes_new(&worker, WORKER, 128 * 1024)?;
-        }
+        let worker = prepare_worker(&workspace.root)?;
         for (name, stage) in config.stages() {
             if (name == "network") != capture {
                 continue;
@@ -221,6 +253,7 @@ impl Session {
                 match execute(
                     stage,
                     &worker,
+                    WORKER,
                     path,
                     &serde_json::to_vec(&request).unwrap_or_default(),
                     remaining,
@@ -268,6 +301,7 @@ impl Session {
 fn execute(
     _: &ScannerConfig,
     _: &Path,
+    _: &[u8],
     _: &Path,
     _: &[u8],
     _: Duration,
@@ -282,6 +316,7 @@ fn execute(
 fn execute(
     config: &ScannerConfig,
     worker: &Path,
+    expected_worker: &[u8],
     target: &Path,
     input: &[u8],
     remaining: Duration,
@@ -327,6 +362,8 @@ fn execute(
         .map_err(|_| (Status::Partial, "scanner_input_limit_or_unsafe_path"))?;
     let _worker_pin = foxhole::host_file::open_pinned_input(worker, 128 * 1024)
         .map_err(|_| failure("worker_path_unsafe"))?;
+    verify_worker_bytes(&_worker_pin.file, expected_worker)
+        .map_err(|_| failure("worker_integrity_mismatch"))?;
     let mut packs = vec![];
     for pack in [&config.rules, &config.user_rules].into_iter().flatten() {
         packs.push(
@@ -474,6 +511,75 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bundled_worker_bytes_are_pinned_and_tampering_is_rejected() {
+        let root = std::env::temp_dir().join(format!(
+            "foxhole-worker-integrity-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        crate::security::prepare_broker_directory(&root).unwrap();
+        let worker = prepare_worker(&root).unwrap();
+        let check = || {
+            let pinned = foxhole::host_file::open_pinned_input(&worker, 128 * 1024).unwrap();
+            let result = verify_worker_bytes(&pinned.file, WORKER);
+            assert!(
+                std::fs::write(&worker, b"replacement").is_err(),
+                "retain no-write sharing while code is used"
+            );
+            result
+        };
+        check().unwrap();
+        for tampered in [
+            b"print('replacement')".to_vec(),
+            WORKER[..WORKER.len() - 1].to_vec(),
+            [WORKER, b"\n# appended"].concat(),
+        ] {
+            std::fs::write(&worker, tampered).unwrap();
+            assert!(check().is_err());
+        }
+        let python = std::env::var_os("FOXHOLE_TEST_PYTHON")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("tmp/detection-venv/Scripts/python.exe")
+            });
+        assert!(python.exists(), "pinned fixture interpreter required");
+        let target = root.join("inert.bin");
+        std::fs::write(&target, b"inert").unwrap();
+        let config = ScannerConfig {
+            executable: Some(python.to_string_lossy().into()),
+            executable_sha256: Some(format!(
+                "{:x}",
+                Sha256::digest(std::fs::read(&python).unwrap())
+            )),
+            ..Default::default()
+        };
+        assert_eq!(
+            execute(
+                &config,
+                &worker,
+                WORKER,
+                &target,
+                b"{}",
+                Duration::from_secs(2)
+            )
+            .unwrap_err()
+            .1,
+            "worker_integrity_mismatch"
+        );
+        std::fs::remove_file(target).unwrap();
+        fs_remove_worker_fixture(&root, &worker);
+    }
+
+    fn fs_remove_worker_fixture(root: &Path, worker: &Path) {
+        std::fs::remove_file(worker).unwrap();
+        std::fs::remove_dir(worker.parent().unwrap()).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
     fn real_capa_worker_completes_with_a_private_cache_in_the_isolated_job() {
         let repository = Path::new(env!("CARGO_MANIFEST_DIR"));
         let python = std::env::var_os("FOXHOLE_TEST_PYTHON")
@@ -517,6 +623,7 @@ mod tests {
         let output = execute(
             &config,
             &worker,
+            WORKER,
             &target,
             &serde_json::to_vec(&request).unwrap(),
             Duration::from_secs(60),
@@ -567,7 +674,14 @@ mod tests {
             ("print('x'*1000000)", Some(Status::Partial)),
         ] {
             std::fs::write(&worker, source).unwrap();
-            let result = execute(&config, &worker, &target, b"{}", Duration::from_secs(2));
+            let result = execute(
+                &config,
+                &worker,
+                source.as_bytes(),
+                &target,
+                b"{}",
+                Duration::from_secs(2),
+            );
             match status {
                 Some(expected) => assert_eq!(result.unwrap_err().0, expected),
                 None => assert!(result.unwrap().starts_with(b"harmless")),
@@ -576,16 +690,30 @@ mod tests {
         let mut missing = config.clone();
         missing.executable = Some(root.join("missing.exe").to_string_lossy().into());
         assert_eq!(
-            execute(&missing, &worker, &target, b"{}", Duration::from_secs(2))
-                .unwrap_err()
-                .0,
+            execute(
+                &missing,
+                &worker,
+                b"",
+                &target,
+                b"{}",
+                Duration::from_secs(2)
+            )
+            .unwrap_err()
+            .0,
             Status::Unavailable
         );
         config.executable_sha256 = Some("00".repeat(32));
         assert_eq!(
-            execute(&config, &worker, &target, b"{}", Duration::from_secs(2))
-                .unwrap_err()
-                .1,
+            execute(
+                &config,
+                &worker,
+                b"",
+                &target,
+                b"{}",
+                Duration::from_secs(2)
+            )
+            .unwrap_err()
+            .1,
             "scanner_integrity_mismatch"
         );
         // Exact fixture cleanup only, no recursive traversal of an attacker-selected path.

@@ -350,6 +350,8 @@ impl Default for RestrictedProcessBackend {
 struct RestrictedExecutionLease(HANDLE);
 
 impl RestrictedExecutionLease {
+    /// Serializes live restricted runs in this Windows session with a bounded mutex wait.
+    /// An abandoned lease is recoverable after a previous broker exit; a live holder is rejected.
     fn acquire() -> SandboxResult<Self> {
         let name = to_wide_null(RESTRICTED_EXECUTION_MUTEX);
         let handle =
@@ -421,6 +423,8 @@ impl ProcessTerminationGuard {
         }
     }
 
+    /// Transfers termination responsibility after the child has entered its kill-on-close Job.
+    /// Until then, this guard kills a suspended child on every early-return path.
     fn disarm(&mut self) {
         self.armed = false;
     }
@@ -592,6 +596,8 @@ impl Drop for AppContainerProfile {
     }
 }
 
+/// Runs the restricted backend lifecycle and assembles target identity, observations and stage results.
+/// Cleanup is attempted after preparation/execution failure; cleanup leftovers remain visible in the report.
 pub fn start_with_request(request: SandboxRequest) -> SandboxResult<WindowsSandboxRun> {
     println!("[cli debug] in start_with_request @restricted_process");
     let mut backend = RestrictedProcessBackend::default();
@@ -706,6 +712,8 @@ pub fn start_with_request(request: SandboxRequest) -> SandboxResult<WindowsSandb
 }
 
 impl SandboxBackend for RestrictedProcessBackend {
+    /// Validates/pins the target and prepares the run identity, workspace, token, desktop and network policy.
+    /// Dry runs validate the launch plan without creating the live containment resources.
     fn prepare(&mut self, request: &SandboxRequest) -> SandboxResult<()> {
         if self.state != BackendState::Created {
             return Err(SandboxError::new(
@@ -889,6 +897,8 @@ impl SandboxBackend for RestrictedProcessBackend {
         }
     }
 
+    /// Executes only the request previously prepared, using the retained launch and containment objects.
+    /// Rejects out-of-order or changed requests; dry-run execution produces synthetic observations.
     fn execute(&mut self, request: &SandboxRequest) -> SandboxResult<SandboxRunResult> {
         if self.state != BackendState::Ready {
             return Err(SandboxError::new(
@@ -995,6 +1005,8 @@ impl SandboxBackend for RestrictedProcessBackend {
         result
     }
 
+    /// Releases prepared containment resources and records failures/leftovers for the lifecycle wrapper.
+    /// May be called after partial preparation, so each resource must tolerate being absent.
     fn cleanup(&mut self) -> SandboxResult<()> {
         if matches!(self.state, BackendState::Finished | BackendState::Created) {
             self.execution_lease.take();
@@ -1092,6 +1104,8 @@ fn start_with_security_capabilities(
     Ok(process_info)
 }
 
+/// Creates the restricted child suspended, assigns its Job and verifies the actual token before resume.
+/// Retains containment/pipe/monitor guards through completion, timeout and error handling.
 fn run_app_container_process(
     request: AppContainerProcess<'_>,
     stdin: Option<BatchInput>,
@@ -1327,6 +1341,8 @@ fn run_app_container_process(
     })
 }
 
+/// Builds a launch from pinned bytes: validated PE directly, or a batch stream into trusted cmd.exe.
+/// Batch arguments are unsupported, and a final newline is added when needed so the last command runs.
 fn prepare_windows_launch(mut target: PinnedTarget, args: &[String]) -> Result<WindowsLaunch> {
     let is_batch = is_batch_target(&target.path);
     if !is_batch {
@@ -1399,6 +1415,8 @@ fn is_batch_target(path: &Path) -> bool {
         })
 }
 
+/// Checks bounded DOS/PE headers and the supported GUI/console subsystem, then rewinds the file.
+/// Returns whether the image is GUI; this is launch compatibility validation, not malware classification.
 fn ensure_supported_pe_target(target: &mut PinnedTarget) -> Result<bool> {
     const DOS_HEADER_BYTES: usize = 64;
     const PE_PREFIX_BYTES: usize = 4 + 20 + 70;
@@ -1523,6 +1541,8 @@ fn spawn_output_reader(mut reader: File) -> thread::JoinHandle<std::io::Result<C
     thread::spawn(move || read_output_bounded(&mut reader))
 }
 
+/// Retains only the configured output prefix while draining the pipe to EOF and counting all bytes.
+/// Continuing to drain prevents an output-heavy child from deadlocking on a full stdout/stderr pipe.
 fn read_output_bounded(reader: &mut impl Read) -> std::io::Result<CapturedOutput> {
     let mut output = CapturedOutput {
         bytes: Vec::with_capacity(MAX_CAPTURED_STREAM_BYTES.min(64 * 1024)),
@@ -1542,6 +1562,8 @@ fn read_output_bounded(reader: &mut impl Read) -> std::io::Result<CapturedOutput
     Ok(output)
 }
 
+/// Streams a pinned batch file into the sandboxed interpreter on a separate thread.
+/// Enforces the batch byte limit and appends the launch plan's optional final newline before closing stdin.
 fn spawn_input_writer(
     mut writer: File,
     mut input: BatchInput,
@@ -1670,6 +1692,8 @@ fn terminal_safe_text(value: &str) -> String {
     escaped
 }
 
+/// Escapes control/format characters within a display-byte budget and reports whether it truncated.
+/// This affects log rendering only; captured evidence bytes are retained independently.
 fn escape_terminal_text(value: &str, max_bytes: usize) -> (String, bool) {
     let mut escaped = String::with_capacity(value.len().min(max_bytes));
     for character in value.chars() {
@@ -1713,6 +1737,7 @@ fn io_error(error: std::io::Error) -> Error {
     Error::new(E_INVALIDARG, error.to_string())
 }
 
+/// Hashes the already pinned target handle and rewinds it for later staging or launch preparation.
 fn hash_pinned_target(target: &mut PinnedTarget) -> Result<String> {
     target.file.seek(SeekFrom::Start(0)).map_err(io_error)?;
     let mut hasher = Sha256::new();
@@ -1732,6 +1757,8 @@ fn hash_pinned_target(target: &mut PinnedTarget) -> Result<String> {
 }
 
 impl PinnedTarget {
+    /// Rechecks the retained target handle's file identity/length before consuming its bytes.
+    /// The directory and file pins keep this check tied to the originally selected object.
     fn verify_identity(&self) -> Result<()> {
         let verifier = open_pinned_file(&self.path).map_err(|err| {
             Error::new(
@@ -1758,6 +1785,9 @@ impl PinnedTarget {
     }
 }
 
+/// Opens a bounded regular target on a fixed local volume while pinning each ancestor without following links.
+/// Rejects reparse inputs and targets inside the protected artifact root; retain the returned
+/// object through staging/launch so writes, deletion or path replacement cannot substitute different bytes.
 fn pin_target(file: &str) -> Result<PinnedTarget> {
     let protected_artifact_root = crate::artifact::artifact_root()
         .and_then(|root| root.canonicalize())
@@ -1837,6 +1867,8 @@ fn pin_target(file: &str) -> Result<PinnedTarget> {
     })
 }
 
+/// Resolves a local target spelling without canonicalizing attacker-controlled descendants first.
+/// Rejects traversal, device/stream components and unsupported path prefixes before filesystem access.
 fn absolute_target_path(file: &str) -> Result<PathBuf> {
     let supplied = Path::new(file);
     let joined = if supplied.is_absolute() {
@@ -2023,6 +2055,8 @@ fn token_u32(
     Ok(value)
 }
 
+/// Sizes a token-information query, then reads the response into aligned machine-word storage.
+/// A failed second query propagates rather than interpreting an incomplete response.
 fn token_information(
     token: HANDLE,
     information_class: windows::Win32::Security::TOKEN_INFORMATION_CLASS,
@@ -2046,6 +2080,8 @@ fn token_information(
     Ok(buffer)
 }
 
+/// Inspects the created child's actual token before its first instruction runs.
+/// Requires the expected low/untrusted LPAC identity and capability set before the child is resumed.
 fn verify_suspended_sandbox_token(
     process: HANDLE,
     expected_sid: PSID,
@@ -2181,6 +2217,8 @@ fn counted_sid_attributes(buffer: &[usize]) -> Result<&[SID_AND_ATTRIBUTES]> {
         .ok_or_else(|| Error::new(E_INVALIDARG, "token query returned a truncated group array"))
 }
 
+/// Builds a sorted, double-NUL-terminated environment from trusted Windows paths and private run directories.
+/// Parent environment variables are not copied, so broker secrets and arbitrary search paths are excluded.
 fn build_sanitized_environment(working_dir: &Path, storage_root: &Path) -> Result<Vec<u16>> {
     let trusted = trusted_windows_paths()?;
     let system_root = win32_path_string(&trusted.windows);
@@ -2276,6 +2314,8 @@ fn sid_attributes(sids: &mut [CapabilitySid]) -> Vec<SID_AND_ATTRIBUTES> {
         .collect()
 }
 
+/// Creates a unique per-run AppContainer profile together with its exclusively held cleanup marker.
+/// The marker stays open while the profile is live so stale-profile scavenging cannot reclaim it.
 fn create_disposable_app_container(
     capabilities: &[SID_AND_ATTRIBUTES],
 ) -> Result<AppContainerProfile> {
@@ -2316,6 +2356,7 @@ fn create_disposable_app_container(
     })
 }
 
+/// Resolves and prepares storage for the disposable AppContainer, checking the returned local path.
 fn app_container_storage(
     app_container_sid: PSID,
     profile_name: &str,
@@ -2454,6 +2495,8 @@ fn create_profile_marker() -> Result<(String, PathBuf, File, Vec<File>)> {
     ))
 }
 
+/// Best-effort removal of Foxhole-named profiles whose protected markers can be opened exclusively.
+/// Live runs hold unshareable markers; unknown names or unsafe marker entries are skipped.
 fn scavenge_stale_app_container_profiles() {
     let legacy_name = to_wide_null(LEGACY_APP_CONTAINER_NAME);
     match unsafe { DeleteAppContainerProfile(PCWSTR(legacy_name.as_ptr())) } {
@@ -2519,6 +2562,7 @@ fn ensure_directory_not_reparse(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Rejects a loopback exemption for this package SID rather than inheriting a host-wide network bypass.
 fn ensure_no_loopback_exemption(app_container_sid: PSID) -> Result<()> {
     let mut count = 0u32;
     let mut entries = std::ptr::null_mut::<SID_AND_ATTRIBUTES>();
@@ -2581,6 +2625,10 @@ fn sid_to_string_text(sid: PSID) -> Result<String> {
         .map_err(|_| Error::new(E_INVALIDARG, "sandbox SID is not valid UTF-16"))
 }
 
+/// Copies a Windows-allocated UTF-16 string and frees its allocation with CoTaskMemFree.
+///
+/// # Safety
+/// `ptr` must be null or point to a readable NUL-terminated string allocated for CoTaskMemFree.
 unsafe fn take_cotaskmem_pwstr(ptr: PWSTR) -> String {
     let value = unsafe { pwstr_to_string(ptr) };
     unsafe {
@@ -2589,6 +2637,10 @@ unsafe fn take_cotaskmem_pwstr(ptr: PWSTR) -> String {
     value
 }
 
+/// Copies a borrowed Windows UTF-16 string without taking ownership.
+///
+/// # Safety
+/// A non-null `ptr` must remain readable through its terminating NUL for this call.
 unsafe fn pwstr_to_string(ptr: PWSTR) -> String {
     if ptr.is_null() {
         return String::new();
@@ -2602,6 +2654,8 @@ unsafe fn pwstr_to_string(ptr: PWSTR) -> String {
     }
 }
 
+/// Creates the kill-on-close Job with process count, memory, CPU, user-time and UI restrictions.
+/// Assign the suspended child before resuming it so launch failures cannot leave an uncontained process.
 fn create_limited_job(timeout_secs: u64, resource_limits: &ResourceLimits) -> Result<WinHandle> {
     let job = unsafe { CreateJobObjectW(None, PCWSTR::null())? };
     let handle = WinHandle::new(job);
@@ -2656,6 +2710,8 @@ fn create_limited_job(timeout_secs: u64, resource_limits: &ResourceLimits) -> Re
     Ok(handle)
 }
 
+/// Polls completion while checking interruption, wall-clock timeout and private-storage limits.
+/// Timeout/quota/interruption terminate the entire Job; storage checks are periodic, not filesystem quotas.
 fn wait_for_process(
     process: HANDLE,
     job: HANDLE,
@@ -2728,6 +2784,7 @@ fn wait_for_process(
     }
 }
 
+/// Terminates the Job's process tree and waits for the root process to exit before releasing containment.
 fn terminate_job_and_wait(job: HANDLE, process: HANDLE) -> Result<()> {
     unsafe {
         TerminateJobObject(job, 1)?;
@@ -2750,6 +2807,8 @@ fn storage_limit_violation(root: &Path) -> Option<String> {
     }
 }
 
+/// Counts private-storage file bytes with bounded entry/path traversal and pinned directory identities.
+/// Rejects links, named streams and unsafe entries; may stop once the byte ceiling is exceeded.
 fn storage_usage(root: &Path) -> std::io::Result<u64> {
     let mut total = 0u64;
     let mut entries_seen = 0usize;
@@ -2814,6 +2873,8 @@ fn storage_usage(root: &Path) -> std::io::Result<u64> {
     Ok(total)
 }
 
+/// Opens a no-follow storage entry, allowing file writers but taking a stricter directory pin.
+/// This permits live file-size snapshots while preventing directory mutation from redirecting traversal.
 fn pin_storage_entry(path: &Path) -> std::io::Result<(File, fs::Metadata)> {
     let file = open_storage_entry(path, FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)?;
     let metadata = validate_storage_entry(&file, path)?;
@@ -2887,6 +2948,7 @@ fn storage_path_bytes(path: &Path) -> std::io::Result<usize> {
         })
 }
 
+/// Checks stream metadata so alternate NTFS data streams cannot hide bytes from the storage budget.
 fn reject_named_storage_streams(file: &File, path: &Path) -> std::io::Result<()> {
     let mut buffer_bytes = 4 * 1024usize;
     let buffer = loop {
@@ -3028,6 +3090,8 @@ struct ProcessSnapshot {
     image: String,
 }
 
+/// Samples the current descendant process tree and owned sockets until stopped, with bounded deduplication.
+/// Records coverage warnings for truncation/query failures; short-lived activity can fall between samples.
 fn monitor_activity(root_pid: u32, stop: Arc<AtomicBool>, started_at: Instant) -> MonitorResult {
     let mut result = MonitorResult::default();
     let mut seen_processes = HashSet::new();
@@ -3161,6 +3225,8 @@ fn monitor_activity(root_pid: u32, stop: Arc<AtomicBool>, started_at: Instant) -
     result
 }
 
+/// Builds a bounded Toolhelp snapshot of the root PID and currently visible descendants.
+/// This is a moment-in-time observation, not an authoritative lifetime/event history.
 fn process_tree(root_pid: u32) -> Vec<ProcessSnapshot> {
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     let Ok(snapshot) = snapshot else {
@@ -3231,6 +3297,8 @@ fn elapsed_ms(started_at: Instant) -> u64 {
     started_at.elapsed().as_millis().min(u64::MAX as u128) as u64
 }
 
+/// Collects bounded IPv4/IPv6 TCP/UDP snapshots for these PIDs.
+/// The extra booleans report truncation and incomplete queries separately from an empty result.
 fn network_connections_for_pids(pids: &HashSet<u32>) -> (Vec<SocketObservation>, bool, bool) {
     let mut connections = Vec::new();
     let mut truncated = false;
@@ -3333,6 +3401,10 @@ fn query_network_table(
     None
 }
 
+/// Bounds-checks and aligns the counted row region before borrowing it from a Win32 table buffer.
+///
+/// # Safety
+/// `Row` must match the initialized Win32 response layout and be valid for every returned row's bytes.
 unsafe fn rows_from_counted_table<Row>(buffer: &[usize], rows_offset: usize) -> Option<&[Row]> {
     let available = buffer.len().checked_mul(mem::size_of::<usize>())?;
     if available < mem::size_of::<u32>() || rows_offset > available {

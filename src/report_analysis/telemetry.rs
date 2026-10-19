@@ -1,5 +1,6 @@
 //! Typed import of bounded, manifest-verified Sysmon records. Legacy arrays remain available.
 use super::model::*;
+use super::process_index::AssociationBudget;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -23,7 +24,15 @@ fn schema_one() -> u32 {
     1
 }
 
-pub fn import(run: &mut NormalizedRun, root: &Path) {
+pub fn import(
+    run: &mut NormalizedRun,
+    root: &Path,
+    budget: &AssociationBudget,
+) -> std::io::Result<()> {
+    let mut process_indices = BTreeMap::new();
+    for (index, process) in run.processes.iter().enumerate() {
+        process_indices.entry(process.pid).or_insert(index);
+    }
     let artifacts = run
         .artifacts
         .iter()
@@ -128,10 +137,13 @@ pub fn import(run: &mut NormalizedRun, root: &Path) {
                 })
                 .parse::<u32>()
                 .unwrap_or(0);
-                let Some(index) = run.processes.iter().position(|p| p.pid == pid) else {
+                let Some(&index) = process_indices.get(&pid) else {
                     continue;
                 };
                 let p = &run.processes[index];
+                budget
+                    .charge(p.image.len())
+                    .map_err(|_| "process association image byte budget exceeded")?;
                 let association = ProcessAssociation {
                     pid,
                     image: p.image.clone(),
@@ -292,6 +304,7 @@ pub fn import(run: &mut NormalizedRun, root: &Path) {
             Ok(())
         })();
         if let Err(message) = result {
+            budget.check()?;
             run.validation_warnings.push(ValidationWarning {
                 code: "structured_telemetry_incomplete".into(),
                 source: artifact.relative_path,
@@ -315,6 +328,7 @@ pub fn import(run: &mut NormalizedRun, root: &Path) {
     run.network_events.sort_by(|a, b| {
         (a.observed_at_ms, &a.evidence_id).cmp(&(b.observed_at_ms, &b.evidence_id))
     });
+    Ok(())
 }
 
 #[cfg(test)]
@@ -322,6 +336,78 @@ mod tests {
     use super::*;
     use serde_json::json;
     use sha2::{Digest, Sha256};
+    #[test]
+    fn structured_rows_use_indexed_pid_lookup_and_share_the_image_budget() {
+        let root = std::env::temp_dir().join(format!(
+            "foxhole-telemetry-index-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let mut run: NormalizedRun = serde_json::from_str(include_str!(
+            "../../tests/fixtures/detection/normalized.json"
+        ))
+        .unwrap();
+        run.processes = (1..=50_000)
+            .map(|pid| Process {
+                pid,
+                parent_pid: None,
+                image: "fixture.exe".into(),
+                command_line: None,
+                status: "started".into(),
+                observed_at_ms: 1,
+                observations: vec![],
+                raw: json!({}),
+            })
+            .collect();
+        let rows = (1..=10_000)
+            .map(|id| {
+                json!({"schema_version":1,"source":"sysmon","event_id":11,
+            "record_id":id,"time_utc":"2020-01-01T00:00:00Z","observed_at_ms":id,
+            "data":{"ProcessId":"50000","TargetFilename":"C:\\work\\file.bin"}})
+            })
+            .collect::<Vec<_>>();
+        let bytes = serde_json::to_vec(&rows).unwrap();
+        let file = root.join("events.json");
+        std::fs::write(&file, &bytes).unwrap();
+        run.artifacts = vec![Artifact {
+            evidence_id: "artifact:events".into(),
+            relative_path: "events.json".into(),
+            kind: "guest_telemetry_events".into(),
+            size_bytes: bytes.len() as u64,
+            sha256: format!("{:x}", Sha256::digest(&bytes)),
+            exists: true,
+            hash_verified: true,
+            source: "fixture".into(),
+            raw: json!({}),
+        }];
+        import(&mut run, &root, &AssociationBudget::default()).unwrap();
+        assert_eq!(run.file_events.len(), 10_000);
+        assert!(
+            run.file_events
+                .iter()
+                .all(|event| event.pid == 50_000 && event.association.image == "fixture.exe")
+        );
+        assert!(
+            run.validation_warnings.is_empty(),
+            "{:?}",
+            run.validation_warnings
+        );
+        run.file_events.clear();
+        // Spend the shared budget without allocating large strings; the next
+        // association must fail the import instead of becoming a warning only.
+        let budget = AssociationBudget::default();
+        budget.charge(64 * 1024 * 1024).unwrap();
+        let error = import(&mut run, &root, &budget).unwrap_err();
+        assert!(error.to_string().contains("analysis is incomplete"));
+        assert!(run.file_events.is_empty());
+        std::fs::remove_file(file).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
     #[test]
     fn structured_events_preserve_direct_associations_and_failures_are_visible() {
         let root =
@@ -365,7 +451,7 @@ mod tests {
             }
         };
         run.artifacts.push(write(&json!(rows)));
-        import(&mut run, &root);
+        import(&mut run, &root, &AssociationBudget::default()).unwrap();
         assert_eq!(run.network_attempts.len(), 1);
         assert_eq!(run.network_attempts[0]["event_id"], 5157);
         assert_eq!(run.network_attempts[0]["correlation"]["target"], false);
@@ -388,11 +474,11 @@ mod tests {
         let mut wrong = json!(rows);
         wrong[0]["schema_version"] = 2.into();
         run.artifacts[0] = write(&wrong);
-        import(&mut run, &root);
+        import(&mut run, &root, &AssociationBudget::default()).unwrap();
         assert!(!run.validation_warnings.is_empty());
         std::fs::write(&file, b"{").unwrap();
         let n = run.validation_warnings.len();
-        import(&mut run, &root);
+        import(&mut run, &root, &AssociationBudget::default()).unwrap();
         assert!(run.validation_warnings.len() > n);
         std::fs::remove_file(file).unwrap();
         std::fs::remove_dir(root).unwrap();

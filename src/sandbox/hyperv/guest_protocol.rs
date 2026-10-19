@@ -110,6 +110,8 @@ impl Default for GuestResourceLimits {
 }
 
 impl GuestResourceLimits {
+    /// Checks protocol ceilings and relationships, including job memory covering process memory.
+    /// Actual enforcement is performed by the guest launcher, not by this wire-format validator.
     pub fn validate(&self) -> ProtocolResult<()> {
         if self.active_process_limit == 0 || self.active_process_limit > MAX_ACTIVE_PROCESSES {
             return Err(ProtocolError::new(
@@ -202,6 +204,8 @@ pub struct GuestRunRequest {
 }
 
 impl GuestRunRequest {
+    /// Checks the full execution contract: versions, target digest/path, limits, profiles and network.
+    /// This validates declared data; the agent must still pin and hash the staged target before use.
     pub fn validate(&self) -> ProtocolResult<()> {
         self.detection
             .validate()
@@ -287,6 +291,8 @@ impl GuestRunRequest {
         self.resource_limits.validate()
     }
 
+    /// Requires addressing and allow-list fields to agree with the chosen network policy.
+    /// Deny-all must not carry a NIC configuration intended for a networked guest.
     fn validate_network_configuration(&self) -> ProtocolResult<()> {
         let configured = self.guest_ipv4.is_some()
             || self.prefix_length.is_some()
@@ -489,6 +495,8 @@ pub struct StatusRecord {
 }
 
 impl StatusRecord {
+    /// Creates a status with its state-derived actor and current timestamp.
+    /// Callers must add the request digest (and applicable result digest) before validation/publication.
     pub fn new(run_id: impl Into<String>, sequence: u64, state: ProtocolState) -> Self {
         Self {
             protocol_version: PROTOCOL_VERSION,
@@ -503,6 +511,8 @@ impl StatusRecord {
         }
     }
 
+    /// Validates sequence, actor/state ownership, digest syntax and error-field consistency.
+    /// Digest equality with the host's request/result is checked separately by the collector.
     pub fn validate(&self) -> ProtocolResult<()> {
         validate_protocol_version(self.protocol_version)?;
         validate_run_id(&self.run_id)?;
@@ -573,6 +583,8 @@ pub struct CaptureCoverage {
 }
 
 impl CaptureCoverage {
+    /// Marks a requested capture incomplete; an unrequested capture is complete by definition.
+    /// The warning is retained only when the missing capture was actually requested.
     pub fn unavailable(requested: bool, warning: impl Into<String>) -> Self {
         Self {
             requested,
@@ -625,6 +637,8 @@ pub struct ArtifactManifestEntry {
 }
 
 impl ArtifactManifestEntry {
+    /// Checks one declared artifact's relative path, size, digest and allowed artifact root.
+    /// File existence and actual bytes are verified during host collection.
     pub fn validate(&self) -> ProtocolResult<()> {
         validate_relative_wire_path(&self.relative_path)?;
         if self.size_bytes > MAX_ARTIFACT_BYTES {
@@ -655,6 +669,8 @@ pub struct GuestNetworkAttestation {
 }
 
 impl GuestNetworkAttestation {
+    /// Validates the shape and safety claims of a guest NIC report.
+    /// Matching the host's assigned address, routes and DNS requires the host network binder.
     pub fn validate(&self) -> ProtocolResult<()> {
         if self.interface_index == 0
             || self.interface_guid.is_empty()
@@ -706,6 +722,8 @@ pub struct GuestResultEnvelope<T> {
 }
 
 impl<T> GuestResultEnvelope<T> {
+    /// Validates envelope/outcome consistency and a bounded, case-insensitively unique manifest.
+    /// Does not validate generic execution payload `T` or establish that guest observations are true.
     pub fn validate_metadata(&self) -> ProtocolResult<()> {
         validate_protocol_version(self.protocol_version)?;
         validate_run_id(&self.run_id)?;
@@ -814,6 +832,8 @@ impl ProtocolStateMachine {
         self.seen.contains(&state)
     }
 
+    /// Accepts one validated status for this run, rejecting replay and unmet prerequisites.
+    /// State changes only after all checks pass; sequences must increase but need not be consecutive.
     pub fn observe(&mut self, record: &StatusRecord) -> ProtocolResult<()> {
         record.validate()?;
         if record.run_id != self.run_id {
@@ -840,6 +860,8 @@ impl ProtocolStateMachine {
         Ok(())
     }
 
+    /// Checks a dependency graph rather than a single fixed order, allowing host start approval
+    /// before guest readiness. After termination, only the shutdown-ready transition is allowed.
     fn validate_prerequisites(&self, state: ProtocolState) -> ProtocolResult<()> {
         let seen = |state| self.seen.contains(&state);
         let terminal = seen(ProtocolState::Completed)
@@ -923,6 +945,9 @@ pub fn validate_sha256(digest: &str) -> ProtocolResult<()> {
     }
 }
 
+/// Checks portable protocol path syntax without touching the filesystem.
+/// Rejects traversal, backslashes, stream separators and reserved Windows components;
+/// callers still need filesystem containment/reparse checks when opening the resulting path.
 pub fn validate_relative_wire_path(value: &str) -> ProtocolResult<()> {
     if value.is_empty()
         || value.len() > MAX_WIRE_PATH_BYTES
@@ -951,6 +976,7 @@ pub fn validate_relative_wire_path(value: &str) -> ProtocolResult<()> {
     Ok(())
 }
 
+/// Joins a validated forward-slash wire path to a native root without canonicalizing or following links.
 pub fn wire_path_to_native(root: &Path, value: &str) -> ProtocolResult<PathBuf> {
     validate_relative_wire_path(value)?;
     let mut output = root.to_path_buf();
@@ -960,6 +986,8 @@ pub fn wire_path_to_native(root: &Path, value: &str) -> ProtocolResult<PathBuf> 
     Ok(output)
 }
 
+/// Reads a bounded regular protocol file, rejecting leaf symlinks/reparse points, changed length and trailing JSON.
+/// The caller is responsible for securing the directory ancestry and validating the decoded value.
 pub fn read_bounded_json<T: DeserializeOwned>(
     path: &Path,
     maximum_bytes: u64,
@@ -1023,6 +1051,9 @@ pub fn read_bounded_json<T: DeserializeOwned>(
     Ok(value)
 }
 
+/// Flushes bounded JSON to a sibling temporary file and publishes it without replacing any destination.
+/// Publication uses a hard link, so the run-data filesystem must support hard links; this prevents
+/// rename-style replacement of a status/result already published by another process.
 pub fn write_atomic_json_new<T: Serialize>(
     path: &Path,
     value: &T,
