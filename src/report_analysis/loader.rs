@@ -1,4 +1,5 @@
 use super::model::*;
+use super::process_index::ProcessIndex;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -176,27 +177,29 @@ pub fn load_run(input: &Path) -> io::Result<NormalizedRun> {
 
     let (processes, process_count) =
         normalize_processes(&process_values, &process_source, &mut warnings);
+    let process_index = ProcessIndex::new(&processes);
+    let association_budget = process_index.budget.clone();
     let (file_events, file_count) = normalize_files(
         &filesystem_values,
         &filesystem_source,
-        &processes,
+        &process_index,
         root_pid,
         &mut warnings,
-    );
+    )?;
     let (registry_events, registry_count) = normalize_registry(
         &registry_values,
         &registry_source,
-        &processes,
+        &process_index,
         root_pid,
         &mut warnings,
-    );
+    )?;
     let (network_events, network_count) = normalize_network(
         &network_values,
         &network_source,
-        &processes,
+        &process_index,
         root_pid,
         &mut warnings,
-    );
+    )?;
     let artifacts = normalize_artifacts(
         guest
             .get("artifacts")
@@ -285,7 +288,7 @@ pub fn load_run(input: &Path) -> io::Result<NormalizedRun> {
         .dedup_by(|a, b| a.evidence_id == b.evidence_id);
     run.artifacts
         .sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
-    super::telemetry::import(&mut run, &guest_output);
+    super::telemetry::import(&mut run, &guest_output, &association_budget)?;
     run.normalized_event_counts = RawEventCounts {
         process: run.processes.iter().map(|p| p.observations.len()).sum(),
         network: run.network_events.len(),
@@ -703,10 +706,10 @@ fn normalize_processes(
 fn normalize_files(
     values: &[Value],
     source: &str,
-    processes: &[Process],
+    processes: &ProcessIndex<'_>,
     root_pid: u32,
     warnings: &mut Vec<ValidationWarning>,
-) -> (Vec<FileEvent>, usize) {
+) -> io::Result<(Vec<FileEvent>, usize)> {
     let mut output = Vec::new();
     for (index, raw) in values.iter().enumerate() {
         let Some(object) = raw.as_object() else {
@@ -789,7 +792,7 @@ fn normalize_files(
                 .filter(|value| !value.is_empty() && value.len() <= 128)
                 .map(str::to_string)
         });
-        let association = associate_process(explicit_pid, observed_at_ms, processes, root_pid);
+        let association = processes.associate(explicit_pid, observed_at_ms, root_pid)?;
         output.push(FileEvent {
             evidence_id: stable_evidence_id("file", source, raw),
             pid: association.pid,
@@ -805,16 +808,16 @@ fn normalize_files(
         });
     }
     let count = output.len();
-    (output, count)
+    Ok((output, count))
 }
 
 fn normalize_registry(
     values: &[Value],
     source: &str,
-    processes: &[Process],
+    processes: &ProcessIndex<'_>,
     root_pid: u32,
     warnings: &mut Vec<ValidationWarning>,
-) -> (Vec<RegistryEvent>, usize) {
+) -> io::Result<(Vec<RegistryEvent>, usize)> {
     let mut output = Vec::new();
     for (index, raw) in values.iter().enumerate() {
         let Some(object) = raw.as_object() else {
@@ -860,7 +863,7 @@ fn normalize_registry(
         };
         let explicit_pid = parse_u32(object.get("pid"));
         warn_invalid_optional_pid(object, raw, "registry", source, index, warnings);
-        let association = associate_process(explicit_pid, observed_at_ms, processes, root_pid);
+        let association = processes.associate(explicit_pid, observed_at_ms, root_pid)?;
         let value_data = object
             .get("value_data")
             .and_then(Value::as_str)
@@ -887,16 +890,16 @@ fn normalize_registry(
         });
     }
     let count = output.len();
-    (output, count)
+    Ok((output, count))
 }
 
 fn normalize_network(
     values: &[Value],
     source: &str,
-    processes: &[Process],
+    processes: &ProcessIndex<'_>,
     root_pid: u32,
     warnings: &mut Vec<ValidationWarning>,
-) -> (Vec<NetworkEvent>, usize) {
+) -> io::Result<(Vec<NetworkEvent>, usize)> {
     let mut output = Vec::new();
     for (index, raw) in values.iter().enumerate() {
         let Some(object) = raw.as_object() else {
@@ -945,7 +948,7 @@ fn normalize_network(
             malformed(warnings, "network", source, index, "pid is invalid", raw);
             continue;
         }
-        let mut association = associate_process(explicit_pid, observed_at_ms, processes, root_pid);
+        let mut association = processes.associate(explicit_pid, observed_at_ms, root_pid)?;
         if let Some(context) = raw.get("event") {
             if let Some(correlation) = context.get("correlation") {
                 association.inferred = true;
@@ -1004,7 +1007,7 @@ fn normalize_network(
         });
     }
     let count = output.len();
-    (output, count)
+    Ok((output, count))
 }
 
 fn normalize_artifacts(
@@ -1281,70 +1284,6 @@ fn append_strings(output: &mut Vec<String>, value: Option<&Value>) {
     }
 }
 
-fn associate_process(
-    explicit_pid: Option<u32>,
-    observed_at_ms: u64,
-    processes: &[Process],
-    root_pid: u32,
-) -> ProcessAssociation {
-    if let Some(pid) = explicit_pid {
-        return association_for_pid(pid, false, "explicit_pid", processes);
-    }
-    let nearest = processes
-        .iter()
-        .filter(|process| process_contains(process, observed_at_ms))
-        .map(|process| {
-            let distance = process
-                .observations
-                .iter()
-                .map(|observation| observation.observed_at_ms.abs_diff(observed_at_ms))
-                .min()
-                .unwrap_or(u64::MAX);
-            (distance, process.pid)
-        })
-        .min();
-    if let Some((_, pid)) = nearest {
-        return association_for_pid(pid, true, "nearest_process_lifetime", processes);
-    }
-    association_for_pid(root_pid, true, "root_target_fallback", processes)
-}
-
-fn association_for_pid(
-    pid: u32,
-    inferred: bool,
-    method: &str,
-    processes: &[Process],
-) -> ProcessAssociation {
-    let process = processes.iter().find(|process| process.pid == pid);
-    ProcessAssociation {
-        pid,
-        image: process
-            .map(|process| process.image.clone())
-            .unwrap_or_else(|| "<unknown>".to_string()),
-        parent_pid: process.and_then(|process| process.parent_pid),
-        inferred,
-        method: method.to_string(),
-    }
-}
-
-fn process_contains(process: &Process, observed_at_ms: u64) -> bool {
-    let start = process
-        .observations
-        .iter()
-        .filter(|observation| observation.status != "terminated")
-        .map(|observation| observation.observed_at_ms)
-        .min()
-        .unwrap_or(process.observed_at_ms);
-    let end = process
-        .observations
-        .iter()
-        .filter(|observation| observation.status == "terminated")
-        .map(|observation| observation.observed_at_ms)
-        .min()
-        .unwrap_or(u64::MAX);
-    start <= observed_at_ms && observed_at_ms <= end
-}
-
 fn split_process_image(value: &str) -> (String, Option<String>, String) {
     if let Some(image) = value.strip_prefix("terminated | ") {
         return (image.to_string(), None, "terminated".to_string());
@@ -1543,10 +1482,10 @@ mod tests {
             "correlation":{"target":true,"confidence":"medium","reason":"PID and lifetime match"}}}),
             ],
             "fixture",
-            &[],
+            &ProcessIndex::new(&[]),
             42,
             &mut vec![],
-        );
+        ).unwrap();
         assert!(network[0].association.inferred);
         assert_eq!(network[0].association.method, "PID and lifetime match");
         assert_eq!(network[0].raw["event"]["event_id"], 5157);
@@ -1600,8 +1539,14 @@ mod tests {
             }),
         ];
         let mut warnings = Vec::new();
-        let (events, count) =
-            normalize_files(&values, "filesystem-events.json", &[], 42, &mut warnings);
+        let (events, count) = normalize_files(
+            &values,
+            "filesystem-events.json",
+            &ProcessIndex::new(&[]),
+            42,
+            &mut warnings,
+        )
+        .unwrap();
         assert_eq!(count, 2);
         assert_eq!(events[0].sha256.as_deref(), Some("ab".repeat(32).as_str()));
         assert_eq!(events[0].hash_source.as_deref(), Some("sysmon_event"));
@@ -1766,20 +1711,61 @@ mod tests {
             json!({"pid": 10, "parent_pid": 0, "image": "terminated | root.exe", "observed_at_ms": 200}),
         ];
         let (processes, _) = normalize_processes(&values, "process-events.json", &mut Vec::new());
-        let explicit = associate_process(Some(20), 50, &processes, 10);
+        let index = ProcessIndex::new(&processes);
+        let explicit = index.associate(Some(20), 50, 10).unwrap();
         assert_eq!(
             (explicit.pid, explicit.inferred, explicit.method.as_str()),
             (20, false, "explicit_pid")
         );
-        let nearest = associate_process(None, 100, &processes, 10);
+        let nearest = index.associate(None, 100, 10).unwrap();
         assert_eq!(
             (nearest.pid, nearest.inferred, nearest.method.as_str()),
             (20, true, "nearest_process_lifetime")
         );
-        let fallback = associate_process(None, 500, &processes, 10);
+        let fallback = index.associate(None, 500, 10).unwrap();
         assert_eq!(
             (fallback.pid, fallback.inferred, fallback.method.as_str()),
             (10, true, "root_target_fallback")
         );
+    }
+
+    #[test]
+    fn allowed_size_pid_free_evidence_normalizes_through_the_shared_index() {
+        let process_values = (1..=50_000)
+            .map(|pid| json!({"pid":pid,"parent_pid":1,"image":"p.exe","observed_at_ms":0}))
+            .collect::<Vec<_>>();
+        let file_values = (1..=50_000).map(|n| json!({"relative_path":format!("f{n}.bin"),"size_bytes":1,"kind":"create","observed_at_ms":1})).collect::<Vec<_>>();
+        assert!(serde_json::to_vec(&process_values).unwrap().len() < MAX_EVENT_JSON_BYTES as usize);
+        assert!(serde_json::to_vec(&file_values).unwrap().len() < MAX_EVENT_JSON_BYTES as usize);
+        let mut warnings = Vec::new();
+        let (processes, _) = normalize_processes(&process_values, "process", &mut warnings);
+        let index = ProcessIndex::new(&processes);
+        let (files, count) =
+            normalize_files(&file_values, "files", &index, 50_000, &mut warnings).unwrap();
+        assert_eq!(count, 50_000);
+        assert!(
+            files
+                .iter()
+                .all(|file| file.pid == 1 && file.association.method == "nearest_process_lifetime")
+        );
+        let (registry, _) = normalize_registry(
+            &[json!({"key":"HKCU\\test","operation":"write","observed_at_ms":1})],
+            "registry",
+            &index,
+            50_000,
+            &mut warnings,
+        )
+        .unwrap();
+        let (network, _) = normalize_network(
+            &[json!({"protocol":"tcp","state":"connected","observed_at_ms":1})],
+            "network",
+            &index,
+            50_000,
+            &mut warnings,
+        )
+        .unwrap();
+        assert_eq!(registry[0].pid, 1);
+        assert_eq!(network[0].pid, 1);
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 }

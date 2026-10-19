@@ -76,6 +76,8 @@ impl CleanupJournal {
         })
     }
 
+    /// Validates and flushes a new numbered journal generation without replacing older ones.
+    /// Keeping prior generations lets recovery survive a crash during the newest write.
     pub(crate) fn persist(&mut self) -> SandboxResult<PathBuf> {
         validate_journal(self)?;
         if self.sequence >= MAX_JOURNAL_SEQUENCE {
@@ -140,6 +142,8 @@ struct RecoveryRunGuard {
     _directory_pins: Vec<File>,
 }
 
+/// Attempts ordered cleanup using recorded resource identities, preserving unverified resources.
+/// Returns warnings/leftovers even after partial failure; VM containment is retained until removal.
 pub(crate) fn cleanup_resources(
     executor: &dyn PowerShellExecutor,
     journal: &mut CleanupJournal,
@@ -388,6 +392,9 @@ pub(crate) fn cleanup_resources(
     outcome
 }
 
+/// Reconciles an interrupted run from its latest valid journal under the configured artifact root.
+/// This performs host cleanup, not just inspection; resources with unproven ownership are retained
+/// and reported in the outcome so recovery can be retried after correcting host conditions.
 pub fn recover_stale_run(
     run_root: &Path,
     shutdown_grace: Duration,
@@ -443,6 +450,8 @@ fn recover_stale_run_from_root(
     Ok(cleanup_resources(executor, &mut journal, shutdown_grace))
 }
 
+/// Restricts recovery to the exact protected `hyperv/runs/<run-id>` directory and pins its ancestry.
+/// A journal in an arbitrary caller-supplied directory never grants authority to delete resources.
 fn bind_recovery_run_root(
     artifact_root: &Path,
     requested_run_root: &Path,
@@ -548,6 +557,8 @@ fn record_persist_error(journal: &mut CleanupJournal, outcome: &mut CleanupOutco
     }
 }
 
+/// Validates journal schema and binds every recorded resource/path to its run before cleanup.
+/// These structural checks are supplemented by live VM/VHD identity checks during reconciliation.
 fn validate_journal(journal: &CleanupJournal) -> SandboxResult<()> {
     let legacy_schema = journal.schema_version == 1;
     if (!(1..=CLEANUP_JOURNAL_SCHEMA_VERSION).contains(&journal.schema_version))
@@ -702,6 +713,8 @@ fn now_unix_ms() -> u64 {
         .min(u64::MAX as u128) as u64
 }
 
+/// Selects the highest valid, path-bound journal generation within bounded directory/file limits.
+/// Truncated or malformed newer generations are skipped so an earlier durable record can recover.
 pub(crate) fn latest_journal(run_root: &Path) -> SandboxResult<Option<CleanupJournal>> {
     artifact::validate_absolute_local_path(run_root).map_err(|error| {
         SandboxError::with_source(

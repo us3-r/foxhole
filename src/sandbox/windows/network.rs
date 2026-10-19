@@ -30,6 +30,8 @@ pub(super) struct NetworkFilters {
 }
 
 impl NetworkFilters {
+    /// Installs package-SID-scoped dynamic WFP filters for enforcing policies.
+    /// AllowInternet/CaptureOnly add no filters; HostServer belongs to the Hyper-V backend.
     pub(super) fn install(policy: &NetworkPolicy, package_sid: PSID) -> SandboxResult<Self> {
         Self::install_with_api(policy, package_sid, Arc::new(SystemWfpApi))
     }
@@ -91,6 +93,8 @@ impl NetworkFilters {
         &self.filter_ids
     }
 
+    /// Deletes recorded filters and closes the dynamic session, reporting deletion failures.
+    /// Closing the session is also the lifetime boundary for its dynamic filters.
     pub(super) fn cleanup(&mut self) -> SandboxResult<()> {
         if self.engine.is_invalid() {
             return Ok(());
@@ -113,6 +117,8 @@ impl NetworkFilters {
         }
     }
 
+    /// Atomically combines higher-weight outbound allow-list entries with dual-stack block defaults.
+    /// An incomplete installation is aborted instead of leaving a partially configured policy.
     fn install_transaction(
         &mut self,
         policy: &NetworkPolicy,
@@ -258,6 +264,8 @@ impl NetworkFilters {
         )
     }
 
+    /// Adds one filter under Foxhole's provider/sublayer and records its cleanup ID.
+    /// Requests a terminating block decision by clearing the action right on blocking filters.
     fn add_filter(
         &mut self,
         layer: GUID,
@@ -313,6 +321,8 @@ impl Drop for NetworkFilters {
     }
 }
 
+/// Ensures shared WFP provider/sublayer definitions exist, tolerating concurrent creation.
+/// Per-run filters live in a separate dynamic session; shared definitions are not run-owned.
 fn ensure_provider_and_sublayer(api: &dyn WfpApi) -> SandboxResult<()> {
     let engine = open_engine(api, None)?;
     let result = (|| {

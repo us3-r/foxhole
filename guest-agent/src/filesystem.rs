@@ -308,6 +308,81 @@ mod tests {
     use std::env;
     use std::fs::File;
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn normal_profile_can_write_work_but_cannot_modify_broker_code_or_input() {
+        let root = env::temp_dir().join(format!(
+            "foxhole-normal-acl-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        security::prepare_broker_directory(&root).unwrap();
+        let work = root.join("work");
+        let input = root.join("input");
+        for directory in [&work, &input] {
+            security::prepare_broker_directory(directory).unwrap();
+        }
+        let target = input.join("target.exe");
+        fs::write(&target, b"inert").unwrap();
+        security::harden_broker_file(&target, false).unwrap();
+        let workspace = GuestWorkspace {
+            base: root.clone(),
+            root: root.clone(),
+            work: work.clone(),
+            output: root.join("unused-output"),
+            target: target.clone(),
+            cleaned: true,
+        };
+        // A mapped well-known SID exercises icacls and inheritance without
+        // creating a local account. Grants apply only to this inert fixture.
+        let sid = "S-1-5-32-545";
+        crate::native_process::grant_normal_user_workspace_access(&workspace, sid).unwrap();
+        let worker = crate::detection::prepare_worker(&root).unwrap();
+        fs::write(work.join("ordinary-output.txt"), b"sample output").unwrap();
+        // Inspect inherited ACEs for the granted SID, independently of the
+        // process running this test (which still owns the broker directories).
+        let script = r#"
+$ErrorActionPreference = 'Stop'
+$sid = [System.Security.Principal.SecurityIdentifier]::new($env:FOXHOLE_ACL_TEST_SID)
+function Rights($path) {
+  $rights = 0
+  $acl = if ([System.IO.Directory]::Exists($path)) { [System.IO.Directory]::GetAccessControl($path) } else { [System.IO.File]::GetAccessControl($path) }
+  foreach ($ace in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
+    if ($ace.IdentityReference -eq $sid -and $ace.AccessControlType -eq 'Allow') { $rights = $rights -bor [int]$ace.FileSystemRights }
+  }
+  return $rights
+}
+$write = [int]([System.Security.AccessControl.FileSystemRights]::Write -bor [System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor [System.Security.AccessControl.FileSystemRights]::TakeOwnership)
+foreach ($path in @($env:FOXHOLE_ACL_TEST_ROOT, (Join-Path $env:FOXHOLE_ACL_TEST_ROOT 'input'), (Join-Path $env:FOXHOLE_ACL_TEST_ROOT 'input/target.exe'), (Join-Path $env:FOXHOLE_ACL_TEST_ROOT 'scanner'), $env:FOXHOLE_ACL_TEST_WORKER)) {
+  if (((Rights $path) -band $write) -ne 0) { throw "sample can modify broker/input path: $path" }
+}
+$rx = [int][System.Security.AccessControl.FileSystemRights]::ReadAndExecute
+foreach ($path in @($env:FOXHOLE_ACL_TEST_ROOT, (Join-Path $env:FOXHOLE_ACL_TEST_ROOT 'input'), (Join-Path $env:FOXHOLE_ACL_TEST_ROOT 'input/target.exe'))) {
+  if (((Rights $path) -band $rx) -ne $rx) { throw "sample cannot read/execute target path: $path" }
+}
+foreach ($path in @((Join-Path $env:FOXHOLE_ACL_TEST_ROOT 'work'), (Join-Path $env:FOXHOLE_ACL_TEST_ROOT 'work/ordinary-output.txt'))) {
+  if (((Rights $path) -band 2) -eq 0) { throw "sample cannot write work output: $path" }
+}
+"#;
+        let result = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .env("FOXHOLE_ACL_TEST_ROOT", &root)
+            .env("FOXHOLE_ACL_TEST_SID", sid)
+            .env("FOXHOLE_ACL_TEST_WORKER", &worker)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(root.parent(), Some(env::temp_dir().as_path()));
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn plain_directory_check_rejects_a_regular_file() {
         let root = env::temp_dir().join(format!(

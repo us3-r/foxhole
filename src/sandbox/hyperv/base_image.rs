@@ -135,6 +135,8 @@ pub(crate) fn inspect(
     })
 }
 
+/// Pins the read-only base image and its ancestry, verifies the manifest hash, then checks VHD metadata.
+/// Retain the returned validated image for the VM lifetime because Hyper-V reopens its pathname.
 pub(crate) fn validate(
     executor: &dyn PowerShellExecutor,
     config: &BaseImageConfig,

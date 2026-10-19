@@ -40,6 +40,8 @@ pub(super) struct PrivateDesktop {
 }
 
 impl PrivateDesktop {
+    /// Creates a per-run window station/desktop with explicit broker and AppContainer ACLs.
+    /// The temporary process-wide station switch is serialized and restored, including error paths.
     pub(super) fn create(run_id: &str, sandbox_sid: &str) -> SandboxResult<Self> {
         let desktop_name = "Sandbox";
         let requested_station_name = private_station_name(run_id)?;
@@ -138,6 +140,8 @@ impl PrivateDesktop {
         })
     }
 
+    /// Borrows the NUL-terminated station/desktop name for STARTUPINFO.
+    /// The pointer is valid only while this desktop and its name buffer remain alive.
     pub(super) fn startup_name(&mut self) -> PWSTR {
         PWSTR(self.startup_name.as_mut_ptr())
     }
@@ -161,6 +165,7 @@ impl Drop for PrivateDesktop {
 struct RestoreWindowStation(HWINSTA);
 
 impl RestoreWindowStation {
+    /// Restores the broker station explicitly; a failed restore leaves the Drop retry armed.
     fn restore(self) -> SandboxResult<()> {
         unsafe { SetProcessWindowStation(self.0) }.map_err(|error| {
             SandboxError::with_source(

@@ -5,6 +5,8 @@ use super::{
 use crate::doctor::{CheckStatus as S, DoctorArgs, DoctorNetwork, DoctorReport};
 use crate::sandbox::backend::NetworkPolicy;
 
+/// Inspects Hyper-V capability, the configured image and controlled switch without booting a VM.
+/// A matching switch does not establish live firewall/NAT enforcement or guest readiness.
 pub fn inspect(args: &DoctorArgs) -> DoctorReport {
     let mut report = DoctorReport::default();
     let executor = NativePowerShell;

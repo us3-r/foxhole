@@ -499,6 +499,8 @@ pub(crate) struct NetworkCleanupResult {
     pub removed: Vec<String>,
 }
 
+/// Validates the requested policy and gateway declaration without changing host networking.
+/// Deny-all needs no gateway; controlled modes require a matching, preprovisioned internal switch.
 pub(crate) fn plan(
     policy: &NetworkPolicy,
     gateway: Option<&ControlledGatewayConfig>,
@@ -551,6 +553,8 @@ pub(crate) fn plan(
     })
 }
 
+/// Reserves a guest IPv4 address and fills the plan with run-specific ACL/capture identifiers.
+/// This acquires a durable lease but does not yet install the host controls; activation is one-shot.
 pub(crate) fn activate(
     plan: &mut HyperVNetworkPlan,
     run_id: &str,
@@ -739,6 +743,8 @@ fn firewall_rule(
     }
 }
 
+/// Applies the plan to the VM and verifies the returned host network state.
+/// Deny-all removes every NIC; controlled networking provisions the declared per-run controls.
 pub(crate) fn configure(
     executor: &dyn PowerShellExecutor,
     vm_id: &str,
@@ -747,6 +753,8 @@ pub(crate) fn configure(
     run_attestation(executor, vm_id, plan, true, false)
 }
 
+/// Attaches the controlled NIC and records its exact firewall scope before rule journaling.
+/// The discovered scope binds later setup and cleanup to this adapter instead of a guessed name.
 pub(crate) fn prepare_controlled_adapter(
     executor: &dyn PowerShellExecutor,
     vm_id: &str,
@@ -781,6 +789,7 @@ pub(crate) fn prepare_controlled_adapter(
     record_firewall_scope(plan, &attachment)
 }
 
+/// Rechecks the VM's host-side adapter, gateway, firewall and capture state without provisioning it.
 pub(crate) fn verify(
     executor: &dyn PowerShellExecutor,
     vm_id: &str,
@@ -789,6 +798,8 @@ pub(crate) fn verify(
     run_attestation(executor, vm_id, plan, false, false)
 }
 
+/// Rechecks host controls after execution, when a stopped VM may expose no learned guest IP.
+/// Guest address claims are bound separately by `bind_guest_attestation` after evidence collection.
 pub(crate) fn verify_after_execution(
     executor: &dyn PowerShellExecutor,
     vm_id: &str,
@@ -800,6 +811,8 @@ pub(crate) fn verify_after_execution(
     run_attestation(executor, vm_id, plan, false, false)
 }
 
+/// Checks the guest NIC declaration against the activated plan and combines it with host evidence.
+/// This establishes agreement of the reports; guest-admin-controlled telemetry is still a guest claim.
 pub(crate) fn bind_guest_attestation(
     plan: &HyperVNetworkPlan,
     attachment: &mut NetworkAttachment,
@@ -852,6 +865,8 @@ pub(crate) fn bind_guest_attestation(
     }
 }
 
+/// Executes the policy-specific configure/inspect script and validates its structured response.
+/// `require_guest_address` selects whether a missing learned address is an attestation failure.
 fn run_attestation(
     executor: &dyn PowerShellExecutor,
     vm_id: &str,
@@ -895,6 +910,8 @@ fn run_attestation(
     Ok(attachment)
 }
 
+/// Compares observed network identities and enforcement settings with the exact activated plan.
+/// Missing or contradictory controls fail the run rather than being accepted as partial isolation.
 fn verify_attachment(
     plan: &HyperVNetworkPlan,
     attachment: &NetworkAttachment,
@@ -1034,6 +1051,7 @@ fn controlled_input(
     }))
 }
 
+/// Records the discovered adapter scope once and rejects a different scope on later observations.
 pub(crate) fn record_firewall_scope(
     plan: &mut HyperVNetworkPlan,
     attachment: &NetworkAttachment,
@@ -1064,6 +1082,8 @@ pub(crate) fn record_firewall_scope(
     Ok(())
 }
 
+/// Builds the cleanup journal's exact per-run resource identities from an activated plan.
+/// Controlled rules cannot be journaled before their firewall scope has been discovered.
 pub(crate) fn owned_resources(
     vm_id: &str,
     run_id: &str,
@@ -1124,6 +1144,8 @@ pub(crate) fn owned_resources(
     })
 }
 
+/// Removes only the recorded per-run network controls, then releases the matching guest lease.
+/// Shared switches/NAT provisioning remain outside this run's ownership; failures retain diagnostics.
 pub(crate) fn cleanup_owned_resources(
     executor: &dyn PowerShellExecutor,
     resources: &NetworkOwnedResources,
@@ -1229,6 +1251,8 @@ pub(crate) fn cleanup_owned_resources(
     Ok(result)
 }
 
+/// Checks journaled rule names, adapter scope, capture path and lease against this run's identity.
+/// Recovery must validate these bindings before acting on resource names read from disk.
 pub(crate) fn validate_owned_resources(
     resources: &NetworkOwnedResources,
     run_id: &str,
@@ -1313,6 +1337,8 @@ pub(crate) fn validate_owned_resources(
     Ok(())
 }
 
+/// Atomically reserves the first free pool address with a create-new, flushed lease file.
+/// Existing leases are occupied, including stale ones; reclaiming a lease requires separate recovery.
 fn allocate_guest_address(
     directory: &Path,
     start: Ipv4Addr,
@@ -1389,6 +1415,7 @@ fn allocate_guest_address(
     ))
 }
 
+/// Deletes a lease only when its on-disk ownership record still exactly matches the caller's lease.
 fn release_guest_address(lease: &GuestAddressLease) -> SandboxResult<()> {
     let metadata = fs::symlink_metadata(&lease.path).map_err(|error| {
         SandboxError::with_source(
@@ -1529,6 +1556,7 @@ pub(crate) type GuestNetworkConfiguration = (
     Option<u16>,
 );
 
+/// Derives guest-facing addressing from the activated plan without exposing host resource paths.
 pub(crate) fn guest_configuration(plan: &HyperVNetworkPlan) -> GuestNetworkConfiguration {
     match plan {
         HyperVNetworkPlan::DenyAll => (None, None, None, Vec::new(), None, None),
@@ -1553,6 +1581,8 @@ pub(crate) fn guest_configuration(plan: &HyperVNetworkPlan) -> GuestNetworkConfi
     }
 }
 
+/// Rejects inconsistent gateway identities, address pools, routes and allocation-directory settings.
+/// This validates a declaration; live inspection establishes whether the host actually matches it.
 fn validate_gateway(gateway: &ControlledGatewayConfig) -> SandboxResult<()> {
     validate_identifier(&gateway.switch_id, "controlled switch identifier")?;
     validate_identifier(&gateway.gateway_id, "controlled gateway identifier")?;
@@ -1616,6 +1646,7 @@ fn validate_gateway(gateway: &ControlledGatewayConfig) -> SandboxResult<()> {
     Ok(())
 }
 
+/// Enforces the distinct host-service and external-network requirements on a valid gateway.
 fn validate_mode(
     gateway: &ControlledGatewayConfig,
     mode: ControlledNetworkMode,
@@ -1736,6 +1767,7 @@ fn forbidden_ranges() -> Vec<(Ipv4Addr, Ipv4Addr)> {
     .collect()
 }
 
+/// Expresses the static blocked-address policy as CIDRs for outbound switch ACLs.
 fn forbidden_ipv4_cidrs() -> Vec<String> {
     forbidden_ranges()
         .into_iter()
@@ -1743,6 +1775,8 @@ fn forbidden_ipv4_cidrs() -> Vec<String> {
         .collect()
 }
 
+/// Builds the complement of the sorted, disjoint static blocked ranges for public TCP rules.
+/// This is the configured address policy, not discovery of the host's current local interfaces/routes.
 fn public_ipv4_cidrs() -> Vec<String> {
     let mut result = Vec::new();
     let mut cursor = 0u64;
@@ -1760,6 +1794,8 @@ fn public_ipv4_cidrs() -> Vec<String> {
     result
 }
 
+/// Covers an inclusive IPv4 interval with aligned CIDRs without enumerating individual addresses.
+/// Requires `start <= end`; 64-bit arithmetic handles the full address space without u32 wraparound.
 fn range_to_cidrs(mut start: u32, end: u32) -> Vec<String> {
     let mut result = Vec::new();
     loop {
@@ -1802,6 +1838,8 @@ fn validate_identifier(identifier: &str, description: &str) -> SandboxResult<()>
     Ok(())
 }
 
+/// Restricts production leases to the provisioned ProgramData/Foxhole/network/allocations directory.
+/// Unit tests accept other absolute paths so isolated fixture directories need no host provisioning.
 fn allocation_directory_is_allowed(directory: &Path) -> bool {
     if cfg!(test) {
         return directory.is_absolute();

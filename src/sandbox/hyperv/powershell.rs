@@ -382,6 +382,8 @@ pub(crate) fn system_powershell_path() -> SandboxResult<std::path::PathBuf> {
     Ok(executable)
 }
 
+/// Drains a management-process pipe while retaining only its allowed output prefix.
+/// Overflow is reported after draining so the child cannot block indefinitely on a full pipe.
 fn read_bounded(mut reader: impl Read, maximum: usize) -> io::Result<BoundedOutput> {
     let mut stored = Vec::with_capacity(maximum.min(16 * 1024));
     let mut total = 0usize;
@@ -426,6 +428,8 @@ fn join_reader(
         })
 }
 
+/// Accepts only a successful versioned JSON response from a management script.
+/// Script error records become bounded host errors instead of being mistaken for successful data.
 fn parse_envelope(operation: &'static str, bytes: &[u8]) -> SandboxResult<Value> {
     let response: ResponseEnvelope = serde_json::from_slice(bytes).map_err(|error| {
         SandboxError::with_source(

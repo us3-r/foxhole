@@ -498,6 +498,8 @@ pub(crate) struct DiskAttachment {
     pub controller_location: u32,
 }
 
+/// Creates a disposable Generation 2 VM with the requested containment settings and validates its identity.
+/// Creation does not boot the guest; disk/network preparation precedes the separate start operation.
 pub(crate) fn create(executor: &dyn PowerShellExecutor, spec: &VmSpec) -> SandboxResult<VmHandle> {
     validate_spec(spec)?;
     std::fs::create_dir(&spec.configuration_path).map_err(|error| {
@@ -639,6 +641,7 @@ pub(crate) fn wait_for_off(
     }
 }
 
+/// Stops the exact recorded VM, checking live identity before shutdown or a forced power-off.
 pub(crate) fn stop(
     executor: &dyn PowerShellExecutor,
     vm: &VmHandle,
@@ -734,6 +737,8 @@ pub(crate) fn remove(executor: &dyn PowerShellExecutor, vm: &VmHandle) -> Sandbo
     Ok(())
 }
 
+/// Reconciles VM creation that may have succeeded before its returned handle was journaled.
+/// Uses the planned name, generation and configuration location to avoid removing an unrelated VM.
 pub(crate) fn remove_planned(
     executor: &dyn PowerShellExecutor,
     run_id: &str,

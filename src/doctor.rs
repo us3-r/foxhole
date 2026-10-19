@@ -68,6 +68,8 @@ impl Default for DoctorReport {
     }
 }
 impl DoctorReport {
+    /// Appends a diagnostic, permanently clearing readiness when any check fails.
+    /// Warnings and unchecked guest prerequisites remain visible without becoming failures.
     pub fn add(
         &mut self,
         id: &str,
@@ -87,6 +89,8 @@ impl DoctorReport {
     }
 }
 
+/// Deserializes a configuration from a pinned local file capped at 64 KiB.
+/// Schema and semantic validation remain the responsibility of the requested type/caller.
 pub(crate) fn read_config<T: serde::de::DeserializeOwned>(
     path: &std::path::Path,
 ) -> Result<T, Box<dyn Error>> {
@@ -103,6 +107,8 @@ pub(crate) fn read_config<T: serde::de::DeserializeOwned>(
     Ok(serde_json::from_slice(&bytes)?)
 }
 
+/// Resolves image/gateway defaults, runs host preflight, and prints text or JSON diagnostics.
+/// Returns an error for failed prerequisites; guest readiness still requires a live smoke test.
 pub fn run(mut args: DoctorArgs) -> Result<(), Box<dyn Error>> {
     args.base_image = args.base_image.or_else(|| {
         std::env::var_os("FOXHOLE_HYPERV_BASE_IMAGE")

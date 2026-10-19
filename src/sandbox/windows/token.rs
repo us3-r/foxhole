@@ -25,6 +25,9 @@ pub(super) struct RestrictedToken {
 }
 
 impl RestrictedToken {
+    /// Builds a privilege-stripped primary token, using the linked standard token for an elevated broker.
+    /// Administrators/Power Users become deny-only; integrity is low, or untrusted for Maximum,
+    /// and UIAccess is disabled before this token can be used for process creation.
     pub(super) fn create(profile: MitigationProfile) -> SandboxResult<Self> {
         let mut current = HANDLE::default();
         unsafe {
@@ -171,6 +174,8 @@ impl RestrictedToken {
     }
 }
 
+/// Obtains the explicit token rights needed for restriction, integrity changes and primary launch.
+/// A valid token handle with insufficient access is not interchangeable with this launch handle.
 fn duplicate_token_handle_with_required_access(source: HANDLE) -> SandboxResult<OwnedToken> {
     let mut duplicate = HANDLE::default();
     let required = TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT;
@@ -195,6 +200,7 @@ fn duplicate_token_handle_with_required_access(source: HANDLE) -> SandboxResult<
     Ok(OwnedToken(duplicate))
 }
 
+/// Rejects impersonation tokens before passing the source to the primary-process launch path.
 fn require_primary_token(source: HANDLE) -> SandboxResult<()> {
     let mut token_type = TOKEN_TYPE::default();
     let mut returned = 0u32;
@@ -219,6 +225,8 @@ fn require_primary_token(source: HANDLE) -> SandboxResult<()> {
     Ok(())
 }
 
+/// Returns the UAC-linked standard token only when the broker has a fully elevated token.
+/// A failed linked-token query is an error; it must not silently fall back to the elevated source.
 fn linked_standard_user_token(current: &OwnedToken) -> SandboxResult<Option<OwnedToken>> {
     let mut elevation_type = TOKEN_ELEVATION_TYPE::default();
     let mut returned = 0u32;

@@ -238,6 +238,8 @@ impl CapabilityReport {
         }
     }
 
+    /// Rejects incomplete capability reports, even if an overall availability flag was set.
+    /// Covers the baseline VM-management prerequisites; controlled networking has additional checks.
     pub fn require_available(&self) -> SandboxResult<()> {
         if self.available
             && self.platform_supported
@@ -264,6 +266,7 @@ impl CapabilityReport {
         ))
     }
 
+    /// Requires baseline Hyper-V access plus every management cmdlet needed for controlled networking.
     pub fn require_controlled_network_available(&self) -> SandboxResult<()> {
         self.require_available()?;
         if self.network_missing_cmdlets.is_empty() {
@@ -279,6 +282,8 @@ impl CapabilityReport {
     }
 }
 
+/// Probes host Hyper-V management capability through the bounded PowerShell executor.
+/// This establishes selection prerequisites, not base-image readiness or successful guest execution.
 pub(crate) fn detect(executor: &dyn PowerShellExecutor) -> SandboxResult<CapabilityReport> {
     let invocation = PowerShellInvocation::new(
         "detect Hyper-V capability",

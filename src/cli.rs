@@ -246,6 +246,9 @@ pub(crate) enum CliHyperVProfile {
     Admin,
 }
 
+/// Parses the process arguments and dispatches doctor, cleanup, VirusTotal or sandbox work.
+/// Windows sandbox targets bypass preliminary metadata lookup so the selected backend can
+/// validate and pin them before any path traversal is attempted.
 pub async fn run_from_env() -> Result<(), Box<dyn Error>> {
     crate::interrupt::install_handler()?;
     #[cfg(target_os = "windows")]
@@ -401,6 +404,8 @@ fn list_directory(path: &str) {
 }
 
 #[cfg(target_os = "windows")]
+/// Selects a backend, executes its validated request and publishes the Windows run report.
+/// Capability-based fallback is decided before execution; runtime failures remain errors.
 fn run_sandbox(path: &str, args: &Args) -> Result<(), Box<dyn Error>> {
     let report_destination = if args.no_report {
         None
@@ -488,6 +493,8 @@ fn run_sandbox(path: &str, args: &Args) -> Result<(), Box<dyn Error>> {
 }
 
 #[cfg(target_os = "windows")]
+/// Builds a PowerShell invocation summary, reducing recognized target-path options to a basename
+/// and redacting arguments after `--`. Other host options are retained as report context.
 fn capture_host_invocation(raw_arguments: &[OsString], args: &Args) -> report::HostInvocationInfo {
     let target_name = args
         .path
@@ -549,6 +556,8 @@ fn capture_host_invocation(raw_arguments: &[OsString], args: &Args) -> report::H
 }
 
 #[cfg(target_os = "windows")]
+/// Quotes one literal value for the PowerShell command displayed in a report.
+/// This quoting is separate from the argument-array APIs used to launch processes.
 fn powershell_argument(value: &str) -> String {
     let safe = !value.is_empty()
         && value.chars().all(|character| {
@@ -574,6 +583,8 @@ struct CompletedWindowsSandboxRun {
 }
 
 #[cfg(target_os = "windows")]
+/// Runs the already selected Windows backend and returns its common report data.
+/// A preparation or execution error propagates rather than selecting a weaker backend here.
 fn execute_windows_backend(
     request: sandbox::backend::SandboxRequest,
     args: &Args,
@@ -617,6 +628,8 @@ fn execute_windows_backend(
 }
 
 #[cfg(target_os = "linux")]
+/// Resolves the requested isolation mode before entering the Linux namespace runner.
+/// This platform path does not produce the structured Windows sandbox report.
 fn run_sandbox(path: &str, args: &Args) -> Result<(), Box<dyn Error>> {
     let selection = resolve_non_windows_backend(args)?;
     for warning in &selection.warnings {
@@ -652,6 +665,8 @@ fn run_sandbox(_path: &str, args: &Args) -> Result<(), Box<dyn Error>> {
 }
 
 #[cfg(not(target_os = "windows"))]
+/// Resolves backend selection on hosts without the Windows implementations.
+/// Rejects unsupported requests unless the operator explicitly permitted the available fallback.
 fn resolve_non_windows_backend(
     args: &Args,
 ) -> sandbox::backend::SandboxResult<sandbox::dispatcher::BackendSelection> {
@@ -671,6 +686,8 @@ fn resolve_non_windows_backend(
 }
 
 #[cfg(target_os = "windows")]
+/// Converts explicit/legacy CLI backend flags into the dispatcher's requested isolation mode.
+/// Keeps selection errors separate from capability checks and execution failures.
 fn requested_backend(args: &Args) -> Result<sandbox::dispatcher::RequestedBackend, Box<dyn Error>> {
     let requested = args
         .sandbox
@@ -695,6 +712,8 @@ fn requested_backend(args: &Args) -> Result<sandbox::dispatcher::RequestedBacken
 }
 
 #[cfg(any(target_os = "windows", test))]
+/// Translates CLI arguments and network/profile options into the common request.
+/// Checks conflicting flags here; callers still validate the request for its selected backend.
 fn build_sandbox_request(
     path: &str,
     args: &Args,
@@ -787,6 +806,8 @@ fn build_sandbox_request(
 }
 
 #[cfg(target_os = "windows")]
+/// Converts the host capability probe into the dispatcher's available/unavailable evidence.
+/// Probe errors are retained as an unavailability reason, not treated as successful detection.
 fn hyperv_capability_evidence() -> sandbox::dispatcher::HyperVCapabilityEvidence {
     match sandbox::hyperv::detect_capability() {
         Ok(report) => match report.require_available() {
@@ -800,6 +821,8 @@ fn hyperv_capability_evidence() -> sandbox::dispatcher::HyperVCapabilityEvidence
 }
 
 #[cfg(target_os = "windows")]
+/// Resolves Hyper-V image/resource settings and securely reads optional scanner/gateway JSON.
+/// This builds host configuration; it does not provision the image or controlled network.
 fn build_hyperv_config(args: &Args) -> Result<sandbox::hyperv::HyperVConfig, Box<dyn Error>> {
     let (base_image, base_manifest) = resolve_hyperv_image_paths(args)?;
     let mut config = sandbox::hyperv::HyperVConfig::new(base_image, base_manifest)?;
@@ -829,6 +852,8 @@ fn build_hyperv_config(args: &Args) -> Result<sandbox::hyperv::HyperVConfig, Box
 }
 
 #[cfg(target_os = "windows")]
+/// Resolves image/manifest paths in CLI, environment, then default order.
+/// A missing manifest defaults beside the chosen image; both resulting paths must be absolute.
 fn resolve_hyperv_image_paths(args: &Args) -> Result<(PathBuf, PathBuf), Box<dyn Error>> {
     let base_image = args
         .hyperv_base_image
@@ -872,6 +897,8 @@ fn default_hyperv_base_image() -> PathBuf {
 }
 
 #[cfg(target_os = "windows")]
+/// Reads the gateway declaration through a pinned, size-bounded local-file handle.
+/// Live host attestation later checks that the declared infrastructure actually matches.
 fn load_gateway_config(
     path: &Path,
 ) -> Result<sandbox::hyperv::ControlledGatewayConfig, Box<dyn Error>> {
@@ -890,6 +917,8 @@ fn load_gateway_config(
 }
 
 #[cfg(any(target_os = "windows", test))]
+/// Decodes nonempty gateway JSON within 64 KiB, rejecting fields outside its strict schema.
+/// Network-mode compatibility and address relationships are validated when planning the network.
 fn decode_gateway_config(
     bytes: &[u8],
 ) -> sandbox::backend::SandboxResult<sandbox::hyperv::ControlledGatewayConfig> {

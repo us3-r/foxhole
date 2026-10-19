@@ -82,6 +82,8 @@ pub(super) struct Workspace {
 }
 
 impl Workspace {
+    /// Stages the pinned target and bounded copies of mapped inputs into the private run workspace.
+    /// Applies per-AppContainer access; writable mappings are copies, not host write-through mounts.
     pub(super) fn create(
         run_root: &Path,
         target_source: &File,
@@ -209,6 +211,8 @@ impl Workspace {
         apply_host_only_acl(&path, current_user)
     }
 
+    /// Takes a bounded post-run snapshot of work/output entries without following reparse points.
+    /// These are observed contents, not a complete history of filesystem changes or file hashes.
     pub(super) fn file_observations(
         &self,
         observed_at_ms: u64,
@@ -313,6 +317,8 @@ fn mapping_destination(root: &Path, guest_name: &str) -> SandboxResult<PathBuf> 
     Ok(destination)
 }
 
+/// Copies an approved local file/tree into its run-owned destination under a shared copy budget.
+/// Source handles pin checked paths during copying; dangerous host roots/reparse inputs are rejected.
 fn stage_mapping(
     mapping: &MappedPath,
     destination: &Path,
@@ -487,6 +493,8 @@ fn copy_pinned_file(source: &File, destination: &Path) -> SandboxResult<File> {
     Ok(output)
 }
 
+/// Hands the staged image from its writer to a read pin without opening a delete-sharing gap.
+/// The final guard denies new writes/deletes and must stay alive through target execution.
 fn open_staged_target_guard(path: &Path, writer: File) -> SandboxResult<File> {
     // Hand the staged image from its writer to a strict read pin without ever allowing delete
     // sharing. The intermediate read handle permits the writer to close before the final pin
@@ -574,6 +582,8 @@ enum Access {
     Modify,
 }
 
+/// Applies the selected sandbox access to every staged entry, rejecting reparse substitutions.
+/// Run metadata and other broker-only paths receive separate ACLs.
 fn apply_tree_acl(
     root: &Path,
     sandbox_sid: &str,
@@ -688,6 +698,8 @@ fn apply_acl(path: &Path, descriptor: &str, low_integrity: bool) -> SandboxResul
     apply_acl_to_handle(path, &object, descriptor, low_integrity)
 }
 
+/// Applies owner, protected DACL and optional low-integrity label to the already opened object.
+/// Using the handle binds permission changes to that object instead of resolving the path again.
 fn apply_acl_to_handle(
     path: &Path,
     object: &File,
